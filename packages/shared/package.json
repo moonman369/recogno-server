@@ -1,0 +1,28 @@
+{
+  "name": "@recogno/shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./env": "./src/env.ts",
+    "./db": "./src/db/index.ts",
+    "./logger": "./src/logger.ts"
+  },
+  "scripts": {
+    "build": "echo \"@recogno/shared is consumed from source; nothing to build\"",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "pino": "^10.3.1",
+    "postgres": "^3.4.9",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.10",
+    "pino-pretty": "^13.1.3"
+  }
+}
