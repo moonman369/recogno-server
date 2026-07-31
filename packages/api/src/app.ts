@@ -3,6 +3,9 @@ import jwt from '@fastify/jwt';
 import { env, logger } from '@recogno/shared';
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify';
 import type { ZodType } from 'zod';
+import stubAuth from './plugins/auth.js';
+import swagger from './plugins/swagger.js';
+import { drillRoutes } from './routes/drill.js';
 import { healthRoutes } from './routes/health.js';
 
 export type AppInstance = FastifyInstance;
@@ -20,10 +23,21 @@ export async function buildApp(): Promise<AppInstance> {
     return result.success ? { value: result.data } : { error: result.error };
   });
 
+  // Response schemas exist to document the API, not to police it. Fastify would
+  // otherwise hand them to fast-json-stringify, which cannot read Zod — and a
+  // slightly wrong schema would silently drop fields or 500 a working endpoint.
+  // Serialising exactly as an unschema'd route does keeps the docs zero-risk.
+  app.setSerializerCompiler(() => (data) => JSON.stringify(data));
+
   await app.register(cors, { origin: true });
   await app.register(jwt, { secret: env.JWT_SECRET });
 
+  // Must precede the routes: @fastify/swagger collects schemas as they register.
+  await app.register(swagger);
+  await app.register(stubAuth);
+
   await app.register(healthRoutes);
+  await app.register(drillRoutes);
 
   return app;
 }
