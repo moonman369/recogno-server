@@ -8,14 +8,18 @@
  *   pnpm --filter @recogno/worker tells:generate -- --limit 5
  */
 
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import { closeDatabase, createLogger, db, env, patterns, problems, tells } from '@recogno/shared';
-import { eq, isNull } from 'drizzle-orm';
+import {
+  closeDatabase,
+  createLogger,
+  db,
+  generateText,
+  patterns,
+  problems,
+  tells,
+} from '@recogno/shared';
+import { and, eq, isNotNull, isNull } from 'drizzle-orm';
 
 const log = createLogger('generate-tells');
-
-/** Floating alias — pinned model IDs get retired for new keys. See services/rationale.ts. */
-const GEMINI_MODEL = process.env.GEMINI_MODEL ?? 'gemini-flash-latest';
 
 /** Gemini's free tier is rate limited; space the calls out. */
 const DELAY_BETWEEN_CALLS_MS = 1_000;
@@ -39,8 +43,10 @@ function parseArgs(argv: string[]): Options {
 
 function buildPrompt(problem: {
   title: string;
-  statement: string;
-  constraints: string;
+  // Nullable in the schema since personal additions may have neither, though the
+  // query below only selects curated problems that do.
+  statement: string | null;
+  constraints: string | null;
   patternName: string;
   patternDescription: string;
 }): string {
@@ -57,8 +63,8 @@ function buildPrompt(problem: {
     '- Do not describe the implementation or give code. Do not restate the problem.',
     '',
     `TITLE: ${problem.title}`,
-    `STATEMENT: ${problem.statement}`,
-    `CONSTRAINTS: ${problem.constraints}`,
+    `STATEMENT: ${problem.statement ?? '(none recorded)'}`,
+    `CONSTRAINTS: ${problem.constraints ?? '(none recorded)'}`,
     `INTENDED PATTERN: ${problem.patternName} — ${problem.patternDescription}`,
     '',
     'Write the tell now, and nothing else.',
@@ -83,25 +89,33 @@ async function main(): Promise<void> {
     .from(problems)
     .innerJoin(patterns, eq(patterns.id, problems.patternId))
     .leftJoin(tells, eq(tells.problemId, problems.id))
-    .where(isNull(tells.id))
+    .where(
+      and(
+        isNull(tells.id),
+        // Tells are a curator artifact for the blind drill. A problem someone
+        // added to a personal deck has no pattern to explain, and one with no
+        // statement gives the model nothing to reason from.
+        eq(problems.source, 'curated'),
+        isNotNull(problems.statement),
+      ),
+    )
     .limit(options.limit);
 
   log.info({ pending: pending.length, dryRun: options.dryRun }, 'Problems missing a tell');
 
   if (pending.length === 0) return;
 
-  const model = new GoogleGenerativeAI(env.GEMINI_API_KEY).getGenerativeModel({
-    model: GEMINI_MODEL,
-    generationConfig: { temperature: 0.4, maxOutputTokens: 1024 },
-  });
-
   let written = 0;
   let failed = 0;
 
   for (const [index, problem] of pending.entries()) {
     try {
-      const response = await model.generateContent(buildPrompt(problem));
-      const tellText = response.response.text().trim();
+      const { text } = await generateText({
+        prompt: buildPrompt(problem),
+        temperature: 0.4,
+        maxOutputTokens: 1024,
+      });
+      const tellText = text.trim();
 
       if (!tellText) {
         throw new Error('Gemini returned an empty tell');

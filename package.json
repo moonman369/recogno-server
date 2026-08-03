@@ -15,6 +15,7 @@
     "db:generate": "pnpm --filter @recogno/shared db:generate",
     "db:migrate": "pnpm --filter @recogno/shared db:migrate",
     "db:seed": "pnpm --filter @recogno/shared db:seed",
+    "openapi:export": "pnpm --filter @recogno/api openapi:export",
     "test": "vitest run",
     "typecheck": "pnpm --recursive run typecheck",
     "lint": "biome check .",

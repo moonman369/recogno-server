@@ -74,9 +74,58 @@ ground-truth pattern and the tell are never in that payload.
 
 | Axis          | Weight | How it scores                                                          |
 | ------------- | ------ | ---------------------------------------------------------------------- |
-| correctness   | 0.50   | 1.0 exact pattern, 0.5 close family, 0 otherwise                        |
-| speed         | 0.20   | linear falloff, 1.0 at 0s down to 0.0 at 90s                            |
+| correctness   | 0.50   | 1.0 if any guess names any accepted pattern, 0.5 close family, 0 otherwise |
+| speed         | 0.20   | 1.0 up to 45s, then a linear decay to 0.0 at 300s                       |
 | rationale     | 0.30   | one Gemini call per attempt: yes / partial / no                         |
+
+The speed curve has a **grace window**: anything answered inside 45 seconds is
+full marks, and credit only decays after that, reaching zero at five minutes.
+
+| time | 30s | 45s | 60s | 90s | 120s | 180s | 300s+ |
+| ---- | --- | --- | --- | --- | ---- | ---- | ----- |
+| speed | 1.00 | 1.00 | 0.94 | 0.82 | 0.71 | 0.53 | 0.00 |
+
+Both bounds are named constants in `packages/api/src/drill/scoring.ts`
+(`SPEED_GRACE_SECONDS`, `SPEED_FLOOR_SECONDS`) — tune them there.
+
+### The pattern taxonomy
+
+84 patterns across 17 categories, defined in
+`packages/shared/src/domain/patterns.ts`, with **one system deck per category**
+and 85 hand-written LeetCode problems in
+`packages/shared/src/db/fixtures.ts`. Each row
+carries a `category` (Graphs, Dynamic Programming, String Algorithms, …), and
+`patternOptions` on `GET /drill/next` returns it — group the picker by category
+rather than rendering 84 flat options.
+
+**Slugs are permanent.** `problems.pattern_id`, `problem_patterns` and
+`drill_attempt_patterns` all point at them, so renaming one orphans real history.
+`patterns.test.ts` pins the original thirteen against exactly that.
+
+`CLOSE_FAMILIES` (the 0.5-credit neighbours) is hand-curated, not derived from
+`category`: two patterns sharing a heading are often nothing alike, and a blanket
+rule would inflate half-credit until it meant nothing.
+
+### Multiple patterns
+
+A problem may accept more than one pattern — counting islands is as fair a read
+as union-find as it is BFS/DFS. Accepted patterns live in `problem_patterns`;
+`problems.pattern_id` stays the canonical one that the tell explains.
+
+A learner may likewise name several. `POST /drill/submit` takes
+`guessedPatternIds` (ids), `guessedPatternSlugs` (slugs) or the original
+single-value `guessedPatternId`, up to 5 guesses:
+
+```jsonc
+{ "problemId": 13,
+  "guessedPatternSlugs": ["bfs-dfs", "union-find"],
+  "rationaleText": "...", "timeTakenSeconds": 12 }
+```
+
+**Naming any one accepted pattern is full credit.** Extra wrong guesses alongside
+a correct one do not reduce it. The response returns `guessedPatterns` and
+`acceptedPatterns` alongside the original singular `guessedPattern` /
+`actualPattern` fields.
 
 The composite maps onto an FSRS grade at 0.8 / 0.55 / 0.3 (Easy / Good / Hard,
 Again below that). Because correctness carries half the weight, a wrong guess
@@ -90,15 +139,95 @@ is visible rather than silent.
 
 ### Identity
 
-There is no auth system yet. `packages/api/src/plugins/auth.ts` reads an
-`x-user-id` header and falls back to a fixed development UUID. Swap the hook body
-for `request.jwtVerify()` when real auth lands.
+Every route requires a bearer token except `/health`, `/docs/*` and the sign-in
+routes themselves. The allowlist lives in `isPublicRoute` in
+`packages/api/src/plugins/auth.ts`; anything not named there is protected, so a
+new route is never accidentally public.
+
+| Route                  | What it does                                        |
+| ---------------------- | --------------------------------------------------- |
+| `GET /auth/providers`  | Which sign-in methods this deployment supports       |
+| `POST /auth/register`  | Create an account with email + password              |
+| `POST /auth/login`     | Sign in                                              |
+| `POST /auth/refresh`   | Rotate the session                                   |
+| `POST /auth/logout`    | Revoke one refresh token                             |
+| `GET /auth/me`         | The signed-in user                                   |
+| `POST /auth/logout-all`| Revoke every session for the account                 |
+| `GET /auth/google`     | Begin Google sign-in (501 until configured)          |
+
+Sessions are a 15-minute access JWT plus a 30-day refresh token. Refresh tokens
+are opaque, stored only as a SHA-256 digest, and **rotate on every use** — a
+replayed token is rejected. Passwords use `node:crypto` scrypt (N=2¹⁷), so there
+is no native module to compile.
 
 ```bash
-curl localhost:3000/drill/next
-curl -X POST localhost:3000/drill/submit -H 'content-type: application/json' \
-  -d '{"problemId":1,"guessedPatternId":1,"rationaleText":"...","timeTakenSeconds":12}'
+TOKEN=$(curl -s -X POST localhost:3000/auth/login -H 'content-type: application/json' \
+  -d '{"email":"you@example.com","password":"your-passphrase"}' | jq -r .accessToken)
+
+curl localhost:3000/drill/next -H "authorization: Bearer $TOKEN"
 ```
+
+Every user gets their own decks, cards and history. The five system decks stay
+shared and read-only for everyone.
+
+Google sign-in needs `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`; without them
+`/auth/google` returns 501 and everything else runs normally. Check
+`GET /auth/providers` to decide whether to show the button.
+
+## Decks and the note/solution flow
+
+Every problem lives in exactly one deck. Five **system decks** hold the curated
+F1.1–F1.4 bank — readable by everyone, writable by no one. Users create their own
+decks and add problems to those.
+
+| Route                              | What it does                                          |
+| ---------------------------------- | ----------------------------------------------------- |
+| `GET /decks`                       | System decks plus the caller's own                     |
+| `POST /decks`                      | Create a personal deck                                 |
+| `GET /decks/{id}`                  | Deck detail; each problem labelled `drill` or `note`   |
+| `POST /decks/{id}/problems`        | Add a problem + first attempt (202, async)             |
+| `POST /problems/{id}/submissions`  | Record a repeat attempt (202, async)                   |
+| `GET /problems/{id}/submissions`   | Attempt history, newest first                          |
+| `GET /submissions/{id}`            | Poll pipeline progress and the AI evaluation           |
+| `POST /submissions/{id}/commit`    | Accept or override the grade, and reschedule           |
+
+### Two flows, one scheduler
+
+A problem is **drill-eligible** when a curator gave it a pattern *and* a tell —
+exactly the curated bank. Everything else is graded by writing a note and a
+solution. Both write to the same `srs_cards`, so `GET /review/due-count` and
+`GET /review/queue` span them; `GET /drill/*` is scoped to drill-eligible
+problems only.
+
+### The async pipeline
+
+`POST /decks/{id}/problems` returns `202` immediately with a `queued` submission.
+The worker then runs the stages, which the client polls:
+
+- **resolve-source** — only when the input was a link or a slug *and* no statement
+  has been fetched yet. Free text is its own statement, so it never gets this stage.
+- **evaluate** — one Gemini call producing the gradation and all three feedback
+  fields together.
+
+Stage rows exist only for work that will really run, so nothing decorative
+appears in the client. A failed resolve is *not* fatal: the learner's note and
+solution are what is being graded, so evaluation proceeds and the stage records
+why the fetch failed.
+
+### Gradations
+
+`Try Again`, `Needs Work`, `Not Bad`, `Good Job`, `Excellent`. The user reviews
+the AI's verdict and may override it before committing; the **final** gradation
+drives scheduling.
+
+Five tiers collapse onto FSRS's four at the bottom — `try-again` and `needs-work`
+both mean it was not really solved, and FSRS treats `Again` specially. Each tier
+carries a nominal composite score fed through the *same* bands the drill uses
+(`packages/shared/src/domain/gradation.ts`), so one set of thresholds governs both
+flows.
+
+A submission whose evaluation failed can still be committed, but only with an
+explicit gradation — the learner self-grades rather than losing the attempt.
 
 ### Growing the bank
 

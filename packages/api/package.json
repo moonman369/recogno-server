@@ -8,6 +8,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsup",
     "start": "node dist/index.js",
+    "openapi:export": "tsx src/scripts/exportOpenapi.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

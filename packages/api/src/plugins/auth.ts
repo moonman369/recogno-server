@@ -1,53 +1,98 @@
 /**
- * Placeholder identity. There is no auth system yet (F1.x is scoped without
- * one), so the user is whoever the `x-user-id` header claims to be, falling
- * back to a fixed development user.
+ * Real authentication. Every route requires a valid access token except the
+ * handful listed in `PUBLIC_ROUTES` — sign-in itself, the health probe and the
+ * docs.
  *
- * Swap the hook body for real JWT verification via `request.jwtVerify()` — the
- * `@fastify/jwt` plugin is already registered in `app.ts`.
+ * `request.userId` keeps the same name and meaning it had under the old stub, so
+ * every deck, drill, submission and review handler is unchanged.
  */
 
-import type { FastifyPluginAsync } from 'fastify';
+import { db, users } from '@recogno/shared';
+import { eq } from 'drizzle-orm';
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
-import { z } from 'zod';
-
-export const STUB_USER_ID = '00000000-0000-0000-0000-000000000001';
-
-export const USER_ID_HEADER = 'x-user-id';
+import type { AccessTokenPayload } from '../services/tokens.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
+    /** The authenticated user's id. Empty string only on public routes. */
     userId: string;
+    userEmail: string;
   }
 }
 
 /**
- * `guid`, not `uuid`: the strict check enforces RFC 9562 version and variant
- * bits, which rejects perfectly usable identifiers — including STUB_USER_ID and
- * any hand-typed test ID. Postgres's own `uuid` type accepts any well-formed
- * 8-4-4-4-12 hex string, so this matches what the column will actually store.
+ * Exactly the routes reachable without a token. Listed individually rather than
+ * by `/auth/` prefix, because `/auth/me` and `/auth/logout-all` must stay
+ * protected — a prefix rule would silently expose them, and would expose any
+ * future `/auth/*` route too.
  */
-const userIdSchema = z.guid();
+const PUBLIC_ROUTES = new Set([
+  '/',
+  '/health',
+  '/auth/providers',
+  '/auth/register',
+  '/auth/login',
+  '/auth/refresh',
+  '/auth/logout',
+  '/auth/google',
+  '/auth/google/callback',
+]);
 
-const stubAuth: FastifyPluginAsync = async (app) => {
+/** The docs bundle is many static assets, so this one stays a prefix. */
+const PUBLIC_PREFIXES = ['/docs'] as const;
+
+export function isPublicRoute(pathname: string): boolean {
+  if (PUBLIC_ROUTES.has(pathname)) return true;
+  return PUBLIC_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}
+
+function bearerToken(request: FastifyRequest): string | undefined {
+  const header = request.headers.authorization;
+  if (!header) return undefined;
+  const [scheme, ...rest] = header.split(' ');
+  if (scheme?.toLowerCase() !== 'bearer') return undefined;
+  const token = rest.join(' ').trim();
+  return token.length > 0 ? token : undefined;
+}
+
+const auth: FastifyPluginAsync = async (app) => {
   app.decorateRequest('userId', '');
+  app.decorateRequest('userEmail', '');
 
   app.addHook('onRequest', async (request, reply) => {
-    const header = request.headers[USER_ID_HEADER];
-    const raw = Array.isArray(header) ? header[0] : header;
+    const [pathname = request.url] = request.url.split('?');
+    if (isPublicRoute(pathname)) return;
 
-    if (!raw) {
-      request.userId = STUB_USER_ID;
-      return;
+    const token = bearerToken(request);
+    if (!token) {
+      return reply.code(401).send({ error: 'Missing bearer token', code: 'UNAUTHENTICATED' });
     }
 
-    const parsed = userIdSchema.safeParse(raw);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: `${USER_ID_HEADER} must be a UUID` });
+    let payload: AccessTokenPayload;
+    try {
+      payload = app.jwt.verify<AccessTokenPayload>(token);
+    } catch {
+      return reply
+        .code(401)
+        .send({ error: 'Invalid or expired access token', code: 'UNAUTHENTICATED' });
     }
 
-    request.userId = parsed.data;
+    // A token can outlive the account it names, so confirm the user still exists
+    // rather than trusting the claim alone.
+    const [user] = await db
+      .select({ id: users.id, email: users.email })
+      .from(users)
+      .where(eq(users.id, payload.sub))
+      .limit(1);
+
+    if (!user) {
+      return reply.code(401).send({ error: 'Account no longer exists', code: 'UNAUTHENTICATED' });
+    }
+
+    request.userId = user.id;
+    request.userEmail = user.email;
   });
 };
 
-export default fp(stubAuth, { name: 'stub-auth' });
+export default fp(auth, { name: 'auth' });

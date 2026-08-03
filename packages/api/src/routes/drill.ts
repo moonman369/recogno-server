@@ -6,9 +6,19 @@
  *   GET  /drill/due-count  badge count for "X reps due today"
  */
 
-import { db, drillAttempts, patterns, problems, srsCards, tells } from '@recogno/shared';
-import { and, asc, count, eq, lte, sql } from 'drizzle-orm';
+import {
+  db,
+  drillAttemptPatterns,
+  drillAttempts,
+  patterns,
+  problemPatterns,
+  problems,
+  srsCards,
+  tells,
+} from '@recogno/shared';
+import { and, asc, count, eq, inArray, lte, or, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
+import { isDrillEligible } from '../drill/eligibility.js';
 import { gradeAttempt, ratingName, round4, toFsrsRating } from '../drill/scoring.js';
 import { createEmptyCard, scheduler, toFsrsCard, toSrsCardColumns } from '../drill/srs.js';
 import { judgeRationale } from '../services/rationale.js';
@@ -32,14 +42,19 @@ const blindProblemColumns = {
   difficulty: problems.difficulty,
 };
 
+/**
+ * Nullable where the columns are: personal deck additions may have no statement,
+ * constraints or difficulty. `isDrillEligible()` keeps those out of this route,
+ * so in practice a served problem always has a statement.
+ */
 type BlindProblem = {
   id: number;
   slug: string;
   title: string;
-  statement: string;
-  constraints: string;
+  statement: string | null;
+  constraints: string | null;
   sourceUrl: string | null;
-  difficulty: 'easy' | 'medium' | 'hard';
+  difficulty: 'easy' | 'medium' | 'hard' | null;
 };
 
 /** How `GET /drill/next` arrived at this problem, surfaced so the UI can label it. */
@@ -73,7 +88,7 @@ export const drillRoutes: FastifyPluginAsync = async (app) => {
         .select({ ...blindProblemColumns, dueAt: srsCards.dueAt })
         .from(srsCards)
         .innerJoin(problems, eq(problems.id, srsCards.problemId))
-        .where(and(eq(srsCards.userId, userId), lte(srsCards.dueAt, now)))
+        .where(and(eq(srsCards.userId, userId), lte(srsCards.dueAt, now), isDrillEligible()))
         .orderBy(asc(srsCards.dueAt))
         .limit(1);
 
@@ -84,10 +99,13 @@ export const drillRoutes: FastifyPluginAsync = async (app) => {
           .select(blindProblemColumns)
           .from(problems)
           .where(
-            sql`not exists (
+            and(
+              isDrillEligible(),
+              sql`not exists (
             select 1 from ${srsCards}
             where ${srsCards.userId} = ${userId} and ${srsCards.problemId} = ${problems.id}
           )`,
+            ),
           )
           .orderBy(sql`random()`)
           .limit(1);
@@ -101,7 +119,7 @@ export const drillRoutes: FastifyPluginAsync = async (app) => {
           .select({ ...blindProblemColumns, dueAt: srsCards.dueAt })
           .from(srsCards)
           .innerJoin(problems, eq(problems.id, srsCards.problemId))
-          .where(eq(srsCards.userId, userId))
+          .where(and(eq(srsCards.userId, userId), isDrillEligible()))
           .orderBy(asc(srsCards.dueAt))
           .limit(1);
 
@@ -109,12 +127,17 @@ export const drillRoutes: FastifyPluginAsync = async (app) => {
       }
 
       if (!selected) {
-        return reply.code(404).send({ error: 'No problems in the bank. Run `pnpm db:seed`.' });
+        return reply.code(404).send({ error: 'No drill-eligible problems. Run `pnpm db:seed`.' });
       }
 
       // The full taxonomy is not a leak — it is the multiple-choice menu.
       const patternOptions = await db
-        .select({ id: patterns.id, slug: patterns.slug, name: patterns.name })
+        .select({
+          id: patterns.id,
+          slug: patterns.slug,
+          name: patterns.name,
+          category: patterns.category,
+        })
         .from(patterns)
         .orderBy(asc(patterns.name));
 
@@ -144,7 +167,14 @@ export const drillRoutes: FastifyPluginAsync = async (app) => {
     },
     async (request, reply) => {
       const { userId } = request;
-      const { problemId, guessedPatternId, rationaleText, timeTakenSeconds } = request.body;
+      const {
+        problemId,
+        guessedPatternIds,
+        guessedPatternSlugs,
+        guessedPatternId,
+        rationaleText,
+        timeTakenSeconds,
+      } = request.body;
 
       const [problem] = await db
         .select({
@@ -155,6 +185,7 @@ export const drillRoutes: FastifyPluginAsync = async (app) => {
           patternId: problems.patternId,
           patternSlug: patterns.slug,
           patternName: patterns.name,
+          patternCategory: patterns.category,
           patternDescription: patterns.description,
           tellText: tells.tellText,
         })
@@ -168,27 +199,90 @@ export const drillRoutes: FastifyPluginAsync = async (app) => {
         return reply.code(404).send({ error: `Problem ${problemId} not found` });
       }
 
-      const [guessed] = await db
-        .select({ id: patterns.id, slug: patterns.slug, name: patterns.name })
-        .from(patterns)
-        .where(eq(patterns.id, guessedPatternId))
-        .limit(1);
+      // Ids, slugs and the single-guess shorthand all funnel into one ordered,
+      // de-duplicated list so the rest of the handler sees a single shape.
+      const requestedIds = [...(guessedPatternIds ?? [])];
+      if (guessedPatternId !== undefined) requestedIds.push(guessedPatternId);
+      const requestedSlugs = (guessedPatternSlugs ?? []).map((slug) => slug.toLowerCase());
 
-      if (!guessed) {
-        return reply.code(400).send({ error: `Pattern ${guessedPatternId} not found` });
+      const candidates = await db
+        .select({
+          id: patterns.id,
+          slug: patterns.slug,
+          name: patterns.name,
+          category: patterns.category,
+        })
+        .from(patterns)
+        .where(
+          or(
+            requestedIds.length > 0 ? inArray(patterns.id, requestedIds) : sql`false`,
+            requestedSlugs.length > 0 ? inArray(patterns.slug, requestedSlugs) : sql`false`,
+          ),
+        );
+
+      const byId = new Map(candidates.map((p) => [p.id, p]));
+      const bySlug = new Map(candidates.map((p) => [p.slug, p]));
+
+      const unknownIds = requestedIds.filter((id) => !byId.has(id));
+      const unknownSlugs = requestedSlugs.filter((slug) => !bySlug.has(slug));
+
+      if (unknownIds.length > 0 || unknownSlugs.length > 0) {
+        const unknown = [...unknownIds.map(String), ...unknownSlugs];
+        return reply.code(400).send({ error: `Unknown pattern(s): ${unknown.join(', ')}` });
       }
+
+      const guessedPatterns = [
+        ...new Map(
+          [
+            ...requestedIds.map((id) => byId.get(id)),
+            ...requestedSlugs.map((slug) => bySlug.get(slug)),
+          ]
+            .filter((p) => p !== undefined)
+            .map((p) => [p.id, p] as const),
+        ).values(),
+      ];
+
+      const guessed = guessedPatterns[0];
+      if (!guessed) {
+        return reply.code(400).send({ error: 'No patterns were guessed' });
+      }
+
+      // Every pattern this problem accepts. Falls back to the canonical one for
+      // problems seeded before alternatives existed.
+      const acceptedRows = await db
+        .select({
+          id: patterns.id,
+          slug: patterns.slug,
+          name: patterns.name,
+          category: patterns.category,
+        })
+        .from(problemPatterns)
+        .innerJoin(patterns, eq(patterns.id, problemPatterns.patternId))
+        .where(eq(problemPatterns.problemId, problemId));
+
+      const acceptedPatterns =
+        acceptedRows.length > 0
+          ? acceptedRows
+          : [
+              {
+                id: problem.patternId,
+                slug: problem.patternSlug,
+                name: problem.patternName,
+                category: problem.patternCategory,
+              },
+            ];
 
       const { verdict, judged } = await judgeRationale({
         statement: problem.statement,
         constraints: problem.constraints,
         actualPatternName: problem.patternName,
-        guessedPatternName: guessed.name,
+        guessedPatternName: guessedPatterns.map((p) => p.name).join(' + '),
         rationaleText,
       });
 
       const scores = gradeAttempt({
-        guessedSlug: guessed.slug,
-        actualSlug: problem.patternSlug,
+        guessedSlug: guessedPatterns.map((p) => p.slug),
+        actualSlug: acceptedPatterns.map((p) => p.slug),
         timeTakenSeconds,
         verdict,
       });
@@ -222,7 +316,8 @@ export const drillRoutes: FastifyPluginAsync = async (app) => {
           .values({
             userId,
             problemId,
-            guessedPatternId,
+            // The first guess, so single-guess readers of this column still work.
+            guessedPatternId: guessed.id,
             rationaleText,
             timeTakenSeconds: Math.round(timeTakenSeconds),
             correctnessScore: scores.correctness,
@@ -232,24 +327,34 @@ export const drillRoutes: FastifyPluginAsync = async (app) => {
           })
           .returning({ id: drillAttempts.id });
 
-        return attempt?.id;
+        if (!attempt) throw new Error('Failed to record the drill attempt');
+
+        await tx
+          .insert(drillAttemptPatterns)
+          .values(guessedPatterns.map((p) => ({ attemptId: attempt.id, patternId: p.id })));
+
+        return attempt.id;
       });
 
       return {
         attemptId,
         correct: scores.correctness === 1,
         guessedPattern: guessed,
+        guessedPatterns,
         actualPattern: {
           id: problem.patternId,
           slug: problem.patternSlug,
           name: problem.patternName,
+          category: problem.patternCategory,
           description: problem.patternDescription,
         },
+        acceptedPatterns,
         tell: problem.tellText,
         explanation: buildExplanation({
           scores,
-          guessedName: guessed.name,
+          guessedNames: guessedPatterns.map((p) => p.name),
           actualName: problem.patternName,
+          acceptedNames: acceptedPatterns.map((p) => p.name),
           timeTakenSeconds,
           verdict,
           judged,
@@ -276,8 +381,10 @@ export const drillRoutes: FastifyPluginAsync = async (app) => {
     {
       schema: {
         tags: ['drill'],
-        summary: 'Count the reps waiting',
-        description: 'Cards whose due date has passed, for the "X reps due today" badge.',
+        summary: 'Count the drill reps waiting',
+        description:
+          'Drill-eligible cards whose due date has passed. For the badge that spans both flows, ' +
+          'use `GET /review/due-count`.',
         response: { 200: dueCountResponseSchema },
       },
     },
@@ -288,12 +395,14 @@ export const drillRoutes: FastifyPluginAsync = async (app) => {
       const [due] = await db
         .select({ value: count() })
         .from(srsCards)
-        .where(and(eq(srsCards.userId, userId), lte(srsCards.dueAt, now)));
+        .innerJoin(problems, eq(problems.id, srsCards.problemId))
+        .where(and(eq(srsCards.userId, userId), lte(srsCards.dueAt, now), isDrillEligible()));
 
       const [next] = await db
         .select({ dueAt: srsCards.dueAt })
         .from(srsCards)
-        .where(eq(srsCards.userId, userId))
+        .innerJoin(problems, eq(problems.id, srsCards.problemId))
+        .where(and(eq(srsCards.userId, userId), isDrillEligible()))
         .orderBy(asc(srsCards.dueAt))
         .limit(1);
 
@@ -305,20 +414,28 @@ export const drillRoutes: FastifyPluginAsync = async (app) => {
 /** Plain-language summary of the grade. Deterministic — no second LLM call. */
 function buildExplanation(input: {
   scores: { correctness: number; speed: number; rationale: number; composite: number };
-  guessedName: string;
+  guessedNames: string[];
   actualName: string;
+  acceptedNames: string[];
   timeTakenSeconds: number;
   verdict: string;
   judged: boolean;
 }): string {
-  const { scores, guessedName, actualName, timeTakenSeconds, verdict, judged } = input;
+  const { scores, guessedNames, actualName, acceptedNames, timeTakenSeconds, verdict, judged } =
+    input;
+
+  const said = formatList(guessedNames);
+  // Mentioning the alternatives only when they exist keeps single-pattern
+  // problems reading exactly as they did before.
+  const others = acceptedNames.filter((name) => name !== actualName);
+  const alternatives = others.length > 0 ? ` It also accepts ${formatList(others)}.` : '';
 
   const correctness =
     scores.correctness === 1
-      ? `Correct — this is ${actualName}.`
+      ? `Correct — this is ${actualName}.${alternatives}`
       : scores.correctness === 0.5
-        ? `Close. You said ${guessedName}; it is ${actualName}, a near neighbour, so you get half credit.`
-        : `Not quite. You said ${guessedName}; it is ${actualName}.`;
+        ? `Close. You said ${said}; it is ${actualName}, a near neighbour, so you get half credit.${alternatives}`
+        : `Not quite. You said ${said}; it is ${actualName}.${alternatives}`;
 
   const speed = `You took ${Math.round(timeTakenSeconds)}s (speed ${scores.speed.toFixed(2)}).`;
 
@@ -331,4 +448,10 @@ function buildExplanation(input: {
     : 'Your rationale could not be graded this time, so it scored neutrally.';
 
   return `${correctness} ${speed} ${rationale} Composite ${scores.composite.toFixed(2)}.`;
+}
+
+/** "A", "A and B", "A, B and C". */
+function formatList(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? 'nothing';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }

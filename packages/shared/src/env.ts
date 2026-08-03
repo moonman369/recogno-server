@@ -39,6 +39,15 @@ export const envSchema = z.object({
   GROQ_API_KEY: secret('GROQ_API_KEY'),
   TELEGRAM_BOT_TOKEN: secret('TELEGRAM_BOT_TOKEN'),
   JWT_SECRET: secret('JWT_SECRET', 32),
+
+  // Google sign-in is optional: the routes register only when both halves are
+  // present, so a missing credential disables that provider instead of
+  // preventing the whole API from booting.
+  GOOGLE_CLIENT_ID: z.string().min(1).optional(),
+  GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
+  GOOGLE_REDIRECT_URI: z.url().optional(),
+  /** Where to send the browser after a successful OAuth callback. */
+  OAUTH_SUCCESS_REDIRECT: z.url().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -64,6 +73,9 @@ loadDotEnv();
 
 /** Validated environment. Importing this module throws at boot if anything is missing. */
 export const env: Env = parseEnv();
+
+/** True only when both halves of the Google credential are configured. */
+export const isGoogleOAuthConfigured = Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
 
 export const isProduction = env.NODE_ENV === 'production';
 export const isTest = env.NODE_ENV === 'test';

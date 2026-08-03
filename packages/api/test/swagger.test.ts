@@ -73,15 +73,52 @@ describe('swagger', () => {
     }
   });
 
-  it('publishes an OpenAPI 3.1 document covering every drill route', () => {
+  it('publishes an OpenAPI 3.1 document covering every route', () => {
     const spec = app.swagger() as Json;
 
     expect(spec.openapi).toBe('3.1.0');
     expect(Object.keys(at(spec, 'paths')).sort()).toEqual([
+      '/auth/google',
+      '/auth/google/callback',
+      '/auth/login',
+      '/auth/logout',
+      '/auth/logout-all',
+      '/auth/me',
+      '/auth/providers',
+      '/auth/refresh',
+      '/auth/register',
+      '/decks',
+      '/decks/{deckId}',
+      '/decks/{deckId}/problems',
       '/drill/due-count',
       '/drill/next',
       '/drill/submit',
       '/health',
+      '/problems/{problemId}/submissions',
+      '/review/due-count',
+      '/review/queue',
+      '/submissions/{submissionId}',
+      '/submissions/{submissionId}/commit',
+    ]);
+  });
+
+  it('documents the submission pipeline stages a client polls for', () => {
+    const ok = jsonSchemaOf(
+      app.swagger(),
+      '/submissions/{submissionId}',
+      'get',
+      'responses',
+      '200',
+    );
+    const stages = at(ok, 'properties', 'stages', 'items', 'properties');
+
+    expect(Object.keys(stages).sort()).toEqual([
+      'detail',
+      'finishedAt',
+      'position',
+      'stage',
+      'startedAt',
+      'status',
     ]);
   });
 
@@ -89,12 +126,24 @@ describe('swagger', () => {
     const body = jsonSchemaOf(app.swagger(), '/drill/submit', 'post', 'requestBody');
 
     expect(body.type).toBe('object');
+    // The three guess fields are each optional; a refinement requires one of them.
     expect((body.required as string[]).slice().sort()).toEqual([
-      'guessedPatternId',
       'problemId',
       'rationaleText',
       'timeTakenSeconds',
     ]);
+    expect(Object.keys(at(body, 'properties')).sort()).toEqual([
+      'guessedPatternId',
+      'guessedPatternIds',
+      'guessedPatternSlugs',
+      'problemId',
+      'rationaleText',
+      'timeTakenSeconds',
+    ]);
+    expect(at(body, 'properties', 'guessedPatternIds')).toMatchObject({
+      type: 'array',
+      maxItems: 5,
+    });
     // The bounds that actually validate requests must show up in the docs.
     expect(at(body, 'properties', 'rationaleText')).toMatchObject({
       type: 'string',
@@ -125,5 +174,40 @@ describe('swagger', () => {
 
   it('hides the root redirect from the published spec', () => {
     expect(at(app.swagger(), 'paths')['/']).toBeUndefined();
+  });
+
+  it('documents bearer auth as the global scheme', () => {
+    const spec = app.swagger() as Json;
+
+    expect(at(spec, 'components', 'securitySchemes', 'bearerAuth')).toMatchObject({
+      type: 'http',
+      scheme: 'bearer',
+    });
+    expect(spec.security).toEqual([{ bearerAuth: [] }]);
+  });
+
+  it('marks the sign-in routes as needing no token', () => {
+    const spec = app.swagger() as Json;
+
+    const publicOperations: [string, string][] = [
+      ['/auth/login', 'post'],
+      ['/auth/register', 'post'],
+      ['/auth/refresh', 'post'],
+      ['/auth/logout', 'post'],
+      ['/auth/providers', 'get'],
+      ['/auth/google', 'get'],
+      ['/auth/google/callback', 'get'],
+    ];
+
+    for (const [route, method] of publicOperations) {
+      expect(at(spec, 'paths', route, method).security, `${method} ${route}`).toEqual([]);
+    }
+  });
+
+  it('leaves the authenticated routes on the global requirement', () => {
+    const spec = app.swagger() as Json;
+    // No per-operation override means the global `security` applies.
+    expect(at(spec, 'paths', '/auth/me', 'get').security).toBeUndefined();
+    expect(at(spec, 'paths', '/decks', 'get').security).toBeUndefined();
   });
 });

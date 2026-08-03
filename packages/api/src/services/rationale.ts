@@ -4,32 +4,19 @@
  * attempt — deliberately uncached, since the rationale text is always new.
  */
 
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import { createLogger, env } from '@recogno/shared';
+import { createLogger, generateText } from '@recogno/shared';
 import type { RationaleVerdict } from '../drill/scoring.js';
 
 const log = createLogger('rationale');
 
-/**
- * A floating alias rather than a pinned version: Google retires specific model
- * IDs for new API keys, which silently degrades every attempt to the fallback
- * verdict. Override with GEMINI_MODEL to pin one deliberately.
- */
-export const GEMINI_MODEL = process.env.GEMINI_MODEL ?? 'gemini-flash-latest';
-
 /** Used when Gemini is unreachable — neutral, and flagged as unjudged in the response. */
 export const FALLBACK_VERDICT: RationaleVerdict = 'partial';
 
-let client: GoogleGenerativeAI | undefined;
-
-function getClient(): GoogleGenerativeAI {
-  client ??= new GoogleGenerativeAI(env.GEMINI_API_KEY);
-  return client;
-}
-
 export interface JudgeRationaleInput {
-  statement: string;
-  constraints: string;
+  // Nullable since problems added to a personal deck may carry neither, though
+  // only drill-eligible (curated) problems reach this code path.
+  statement: string | null;
+  constraints: string | null;
   actualPatternName: string;
   guessedPatternName: string;
   rationaleText: string;
@@ -58,9 +45,9 @@ function buildPrompt(input: JudgeRationaleInput): string {
     'Grade the reasoning, not the verdict: a learner can name the wrong pattern for a well-cited',
     'reason (that is "yes" or "partial"), or the right pattern for no reason at all (that is "no").',
     '',
-    `PROBLEM STATEMENT:\n${input.statement}`,
+    `PROBLEM STATEMENT:\n${input.statement ?? '(not recorded)'}`,
     '',
-    `CONSTRAINTS:\n${input.constraints}`,
+    `CONSTRAINTS:\n${input.constraints ?? '(not recorded)'}`,
     '',
     `TRUE PATTERN: ${input.actualPatternName}`,
     `LEARNER'S GUESS: ${input.guessedPatternName}`,
@@ -84,13 +71,12 @@ export function parseRationaleVerdict(raw: string): RationaleVerdict | undefined
 
 export async function judgeRationale(input: JudgeRationaleInput): Promise<JudgeRationaleResult> {
   try {
-    const model = getClient().getGenerativeModel({
-      model: GEMINI_MODEL,
-      generationConfig: { temperature: 0, maxOutputTokens: 512 },
+    const { text: raw } = await generateText({
+      prompt: buildPrompt(input),
+      temperature: 0,
+      maxOutputTokens: 512,
     });
 
-    const response = await model.generateContent(buildPrompt(input));
-    const raw = response.response.text();
     const verdict = parseRationaleVerdict(raw);
 
     if (!verdict) {

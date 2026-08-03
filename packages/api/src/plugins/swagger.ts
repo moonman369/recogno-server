@@ -16,7 +16,6 @@ import fastifySwaggerUi from '@fastify/swagger-ui';
 import type { FastifyPluginAsync } from 'fastify';
 import fp from 'fastify-plugin';
 import { z } from 'zod';
-import { USER_ID_HEADER } from './auth.js';
 
 export const DOCS_ROUTE_PREFIX = '/docs';
 
@@ -88,22 +87,29 @@ const swagger: FastifyPluginAsync = async (app) => {
         version: '1.0.0',
       },
       tags: [
+        { name: 'auth', description: 'Sign-up, sign-in, sessions and Google OAuth' },
+        { name: 'review', description: 'What is due now, across both review flows' },
         { name: 'drill', description: 'The Blind Recognition Drill loop (F1.1–F1.4)' },
+        { name: 'decks', description: 'Deck containers and adding problems to them' },
+        {
+          name: 'submissions',
+          description: 'Note + solution attempts, their AI evaluation, and committing a grade',
+        },
         { name: 'system', description: 'Liveness and readiness' },
       ],
       components: {
         securitySchemes: {
-          stubUserId: {
-            type: 'apiKey',
-            in: 'header',
-            name: USER_ID_HEADER,
+          bearerAuth: {
+            type: 'http',
+            scheme: 'bearer',
+            bearerFormat: 'JWT',
             description:
-              'Placeholder identity until real auth lands. Optional — omit it and requests ' +
-              'run as the fixed development user. Set it here to drill as someone else.',
+              'Access token from POST /auth/login, /auth/register or the Google callback. ' +
+              'Paste just the token — Swagger adds the "Bearer " prefix.',
           },
         },
       },
-      security: [{ stubUserId: [] }],
+      security: [{ bearerAuth: [] }],
     },
     transform: transformSchema as never,
   });

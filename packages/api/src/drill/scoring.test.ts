@@ -7,6 +7,7 @@ import {
   rationaleScore,
   SCORE_WEIGHTS,
   SPEED_FLOOR_SECONDS,
+  SPEED_GRACE_SECONDS,
   speedScore,
   toFsrsRating,
 } from './scoring.js';
@@ -39,15 +40,90 @@ describe('correctnessScore', () => {
   });
 });
 
-describe('speedScore', () => {
-  it('is 1.0 at zero seconds', () => {
-    expect(speedScore(0)).toBe(1);
+describe('correctnessScore with multiple patterns', () => {
+  // A grid-connectivity problem is a fair read as either.
+  const ISLANDS = ['bfs-dfs', 'union-find'];
+
+  it('gives full credit for naming any one accepted pattern', () => {
+    expect(correctnessScore('bfs-dfs', ISLANDS)).toBe(1);
+    expect(correctnessScore('union-find', ISLANDS)).toBe(1);
   });
 
-  it('falls off linearly to the floor', () => {
-    expect(speedScore(SPEED_FLOOR_SECONDS / 2)).toBeCloseTo(0.5, 10);
-    expect(speedScore(SPEED_FLOOR_SECONDS / 4)).toBeCloseTo(0.75, 10);
-    expect(speedScore(22.5)).toBeCloseTo(0.75, 10);
+  it('gives full credit for naming all of them', () => {
+    expect(correctnessScore(ISLANDS, ISLANDS)).toBe(1);
+  });
+
+  it('gives full credit when one guess of several is right', () => {
+    expect(correctnessScore(['heap', 'bfs-dfs'], ISLANDS)).toBe(1);
+    expect(correctnessScore(['bitmask', 'greedy', 'union-find'], ISLANDS)).toBe(1);
+  });
+
+  it('gives full credit when a single accepted pattern is among several guesses', () => {
+    expect(correctnessScore(['heap', 'sliding-window'], 'sliding-window')).toBe(1);
+  });
+
+  it('falls back to half credit when only a near neighbour was named', () => {
+    // two-pointers is close family to sliding-window, but matches neither exactly.
+    expect(correctnessScore(['two-pointers'], ['sliding-window', 'heap'])).toBe(0.5);
+    expect(correctnessScore(['bitmask', 'two-pointers'], ['sliding-window'])).toBe(0.5);
+  });
+
+  it('prefers an exact match over a near neighbour regardless of order', () => {
+    // monotonic-stack is close family to sliding-window; heap is exact.
+    expect(correctnessScore(['monotonic-stack', 'heap'], ['sliding-window', 'heap'])).toBe(1);
+    expect(correctnessScore(['heap', 'monotonic-stack'], ['sliding-window', 'heap'])).toBe(1);
+  });
+
+  it('gives no credit when nothing matches or neighbours', () => {
+    expect(correctnessScore(['heap', 'bitmask'], ['sliding-window'])).toBe(0);
+  });
+
+  it('ignores duplicates', () => {
+    expect(correctnessScore(['bfs-dfs', 'bfs-dfs'], ISLANDS)).toBe(1);
+  });
+
+  it('gives no credit for an empty guess or an empty accepted set', () => {
+    expect(correctnessScore([], ISLANDS)).toBe(0);
+    expect(correctnessScore(['bfs-dfs'], [])).toBe(0);
+  });
+
+  it('matches the single-slug behaviour exactly when one of each is given', () => {
+    expect(correctnessScore(['sliding-window'], ['sliding-window'])).toBe(
+      correctnessScore('sliding-window', 'sliding-window'),
+    );
+    expect(correctnessScore(['two-pointers'], ['sliding-window'])).toBe(
+      correctnessScore('two-pointers', 'sliding-window'),
+    );
+  });
+});
+
+describe('speedScore', () => {
+  it('gives full credit for anything inside the grace window', () => {
+    expect(speedScore(0)).toBe(1);
+    expect(speedScore(20)).toBe(1);
+    expect(speedScore(SPEED_GRACE_SECONDS)).toBe(1);
+  });
+
+  it('does not punish the time it takes to read a hard problem', () => {
+    // The whole point of the change: two minutes used to score 0.
+    expect(speedScore(90)).toBeGreaterThan(0.75);
+    expect(speedScore(120)).toBeGreaterThan(0.65);
+    expect(speedScore(180)).toBeGreaterThan(0.4);
+  });
+
+  it('decays linearly between the grace point and the floor', () => {
+    const midpoint = (SPEED_GRACE_SECONDS + SPEED_FLOOR_SECONDS) / 2;
+    expect(speedScore(midpoint)).toBeCloseTo(0.5, 10);
+    expect(speedScore(120)).toBeCloseTo(1 - 75 / 255, 10);
+  });
+
+  it('is monotonically non-increasing', () => {
+    let previous = 1;
+    for (let t = 0; t <= 400; t += 5) {
+      const score = speedScore(t);
+      expect(score, `${t}s`).toBeLessThanOrEqual(previous);
+      previous = score;
+    }
   });
 
   it('is 0 exactly at the floor', () => {
@@ -59,9 +135,35 @@ describe('speedScore', () => {
     expect(speedScore(10_000)).toBe(0);
   });
 
-  it('clamps to 1 for a negative or non-finite duration', () => {
+  it('clamps to 1 for a negative duration and 0 for a non-finite one', () => {
     expect(speedScore(-5)).toBe(1);
     expect(speedScore(Number.NaN)).toBe(0);
+  });
+});
+
+describe('the composite a real attempt now earns', () => {
+  it('keeps a correct, well-argued two-minute answer in the Easy band', () => {
+    const { composite } = gradeAttempt({
+      guessedSlug: 'dp-knapsack',
+      actualSlug: 'dp-knapsack',
+      timeTakenSeconds: 120,
+      verdict: 'yes',
+    });
+    // Was 0.80 under the old curve; the axis no longer zeroes out.
+    expect(composite).toBeGreaterThan(0.9);
+    expect(toFsrsRating(composite)).toBe(Rating.Easy);
+  });
+
+  it('lifts a correct two-minute answer with a weak rationale out of Hard', () => {
+    const { composite } = gradeAttempt({
+      guessedSlug: 'dp-knapsack',
+      actualSlug: 'dp-knapsack',
+      timeTakenSeconds: 120,
+      verdict: 'no',
+    });
+    // Previously exactly 0.50 → Hard, which is what prompted the change.
+    expect(composite).toBeGreaterThan(0.6);
+    expect(toFsrsRating(composite)).toBe(Rating.Good);
   });
 });
 
@@ -124,17 +226,38 @@ describe('gradeAttempt', () => {
     const scores = gradeAttempt({
       guessedSlug: 'bitmask',
       actualSlug: 'sliding-window',
-      timeTakenSeconds: 120,
+      timeTakenSeconds: SPEED_FLOOR_SECONDS,
       verdict: 'no',
     });
     expect(scores).toEqual({ correctness: 0, speed: 0, rationale: 0, composite: 0 });
+  });
+
+  it('grades a multi-pattern guess against a multi-pattern problem', () => {
+    const scores = gradeAttempt({
+      guessedSlug: ['bfs-dfs', 'union-find'],
+      actualSlug: ['bfs-dfs', 'union-find'],
+      timeTakenSeconds: 0,
+      verdict: 'yes',
+    });
+    expect(scores).toEqual({ correctness: 1, speed: 1, rationale: 1, composite: 1 });
+  });
+
+  it('awards full correctness when one of several guesses is accepted', () => {
+    const scores = gradeAttempt({
+      guessedSlug: ['heap', 'union-find'],
+      actualSlug: ['bfs-dfs', 'union-find'],
+      timeTakenSeconds: 45,
+      verdict: 'yes',
+    });
+    expect(scores.correctness).toBe(1);
   });
 
   it('combines a close guess with partial credit on the rationale', () => {
     const scores = gradeAttempt({
       guessedSlug: 'two-pointers',
       actualSlug: 'sliding-window',
-      timeTakenSeconds: 45,
+      // Halfway down the decay, so every axis contributes exactly 0.5.
+      timeTakenSeconds: (SPEED_GRACE_SECONDS + SPEED_FLOOR_SECONDS) / 2,
       verdict: 'partial',
     });
     // 0.5*0.5 + 0.2*0.5 + 0.3*0.5 = 0.5
@@ -191,11 +314,11 @@ describe('composite to rating, end to end', () => {
     expect(toFsrsRating(composite)).toBe(Rating.Easy);
   });
 
-  it('sends a correct but slow and unjustified answer to Hard', () => {
+  it('sends a correct but very slow and unjustified answer to Hard', () => {
     const { composite } = gradeAttempt({
       guessedSlug: 'union-find',
       actualSlug: 'union-find',
-      timeTakenSeconds: 90,
+      timeTakenSeconds: SPEED_FLOOR_SECONDS,
       verdict: 'no',
     });
     // Correctness alone is 0.5 — a right answer you cannot justify is not mastery.

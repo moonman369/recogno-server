@@ -15,8 +15,15 @@ export const SCORE_WEIGHTS = {
   rationale: 0.3,
 } as const;
 
-/** Speed credit decays linearly and hits zero at this many seconds. */
-export const SPEED_FLOOR_SECONDS = 90;
+/**
+ * Full speed credit for anything answered within this window. Recognising a
+ * pattern is meant to be quick, but a hard problem deserves time to read the
+ * constraints before the clock starts costing anything.
+ */
+export const SPEED_GRACE_SECONDS = 45;
+
+/** Speed credit reaches zero at this many seconds, decaying from the grace point. */
+export const SPEED_FLOOR_SECONDS = 300;
 
 export const CORRECTNESS_SCORES = {
   exact: 1,
@@ -60,22 +67,62 @@ export function round4(value: number): number {
   return Math.round(value * 1e4) / 1e4;
 }
 
-/**
- * 1.0 for the exact pattern, 0.5 when the guess is a defensible neighbour
- * (see `CLOSE_FAMILIES` in shared), 0 otherwise.
- */
-export function correctnessScore(guessedSlug: string, actualSlug: string): number {
-  if (guessedSlug === actualSlug) return CORRECTNESS_SCORES.exact;
-  if (areCloseFamily(guessedSlug, actualSlug)) return CORRECTNESS_SCORES.closeFamily;
-  return CORRECTNESS_SCORES.wrong;
+/** Normalises one-or-many into a de-duplicated list, dropping blanks. */
+function toList(value: string | readonly string[]): string[] {
+  const list = typeof value === 'string' ? [value] : value;
+  return [...new Set(list.filter((slug) => slug.length > 0))];
 }
 
 /**
- * Linear falloff: 1.0 at 0s, 0.0 at `SPEED_FLOOR_SECONDS` and beyond.
- * Recognition is meant to be fast — this axis rewards the instant read.
+ * 1.0 when any guess names any accepted pattern, 0.5 when none match exactly
+ * but some guess is a defensible neighbour of an accepted one (see
+ * `CLOSE_FAMILIES` in shared), 0 otherwise.
+ *
+ * A problem may legitimately have several accepted patterns — a grid traversal
+ * answerable by BFS/DFS or by union-find — and a learner may name more than one.
+ * Naming any single accepted pattern is full recognition, so the best match
+ * across the two sets wins rather than an average over them.
+ */
+export function correctnessScore(
+  guessed: string | readonly string[],
+  accepted: string | readonly string[],
+): number {
+  const guesses = toList(guessed);
+  const truths = toList(accepted);
+
+  if (guesses.length === 0 || truths.length === 0) return CORRECTNESS_SCORES.wrong;
+
+  let best: number = CORRECTNESS_SCORES.wrong;
+
+  for (const guess of guesses) {
+    for (const truth of truths) {
+      if (guess === truth) return CORRECTNESS_SCORES.exact;
+      if (areCloseFamily(guess, truth)) best = CORRECTNESS_SCORES.closeFamily;
+    }
+  }
+
+  return best;
+}
+
+/**
+ * Full credit up to `SPEED_GRACE_SECONDS`, then a linear decay to zero at
+ * `SPEED_FLOOR_SECONDS`.
+ *
+ * The previous curve started decaying at the first second and hit zero at 90,
+ * which zeroed this axis for any problem worth thinking about — two minutes on a
+ * genuinely hard one scored the same as giving up. The grace window says "reading
+ * the constraints is not slowness", and the far floor keeps the axis meaningful
+ * without it dominating a correct answer.
+ *
+ *   0-45s -> 1.00    90s -> 0.82    150s -> 0.59
+ *    60s  -> 0.94   120s -> 0.71    300s+ -> 0
  */
 export function speedScore(timeTakenSeconds: number): number {
-  return clamp01(1 - timeTakenSeconds / SPEED_FLOOR_SECONDS);
+  if (!Number.isFinite(timeTakenSeconds)) return 0;
+  if (timeTakenSeconds <= SPEED_GRACE_SECONDS) return 1;
+
+  const decayWindow = SPEED_FLOOR_SECONDS - SPEED_GRACE_SECONDS;
+  return clamp01(1 - (timeTakenSeconds - SPEED_GRACE_SECONDS) / decayWindow);
 }
 
 export function rationaleScore(verdict: RationaleVerdict): number {
@@ -98,8 +145,10 @@ export function compositeScore(parts: {
 
 /** Runs all three axes and the composite in one call. */
 export function gradeAttempt(input: {
-  guessedSlug: string;
-  actualSlug: string;
+  /** One slug or several — a learner may name every pattern they think applies. */
+  guessedSlug: string | readonly string[];
+  /** One slug or several — a problem may accept more than one valid approach. */
+  actualSlug: string | readonly string[];
   timeTakenSeconds: number;
   verdict: RationaleVerdict;
 }): ScoreBreakdown {

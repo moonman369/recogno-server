@@ -1,63 +1,120 @@
+/**
+ * Route protection. The database is mocked, so this exercises the guard itself
+ * rather than the sign-in flow — that lives in the live end-to-end check.
+ */
+
 import Fastify from 'fastify';
 import { describe, expect, it } from 'vitest';
-import stubAuth, { STUB_USER_ID, USER_ID_HEADER } from '../src/plugins/auth.js';
+import auth, { isPublicRoute } from '../src/plugins/auth.js';
 
-async function buildProbe() {
+describe('isPublicRoute', () => {
+  it('allows sign-in and the health probe through', () => {
+    for (const route of [
+      '/',
+      '/health',
+      '/auth/providers',
+      '/auth/register',
+      '/auth/login',
+      '/auth/refresh',
+      '/auth/logout',
+      '/auth/google',
+      '/auth/google/callback',
+    ]) {
+      expect(isPublicRoute(route), `${route} should be public`).toBe(true);
+    }
+  });
+
+  it('serves the docs and their assets without a token', () => {
+    expect(isPublicRoute('/docs')).toBe(true);
+    expect(isPublicRoute('/docs/')).toBe(true);
+    expect(isPublicRoute('/docs/static/swagger-ui.css')).toBe(true);
+    expect(isPublicRoute('/docs/json')).toBe(true);
+  });
+
+  it('protects the authenticated half of /auth', () => {
+    // A `/auth/` prefix rule would have exposed these.
+    expect(isPublicRoute('/auth/me')).toBe(false);
+    expect(isPublicRoute('/auth/logout-all')).toBe(false);
+  });
+
+  it('protects every feature route', () => {
+    for (const route of [
+      '/decks',
+      '/decks/1',
+      '/decks/1/problems',
+      '/drill/next',
+      '/drill/submit',
+      '/drill/due-count',
+      '/review/queue',
+      '/review/due-count',
+      '/submissions/abc',
+      '/problems/1/submissions',
+    ]) {
+      expect(isPublicRoute(route), `${route} should be protected`).toBe(false);
+    }
+  });
+
+  it('does not treat a lookalike prefix as public', () => {
+    expect(isPublicRoute('/docsomething')).toBe(false);
+    expect(isPublicRoute('/healthz')).toBe(false);
+    expect(isPublicRoute('/authorise')).toBe(false);
+  });
+});
+
+async function buildGuarded() {
   const app = Fastify();
-  await app.register(stubAuth);
-  app.get('/whoami', async (request) => ({ userId: request.userId }));
+  await app.register(await import('@fastify/jwt').then((m) => m.default), {
+    secret: 'test-secret-that-is-at-least-32-characters',
+  });
+  await app.register(auth);
+  app.get('/decks', async (request) => ({ userId: request.userId }));
+  app.get('/health', async () => ({ ok: true }));
   await app.ready();
   return app;
 }
 
-describe('stub auth', () => {
-  it('falls back to the development user when no header is sent', async () => {
-    const app = await buildProbe();
-    const response = await app.inject({ method: 'GET', url: '/whoami' });
+describe('the guard', () => {
+  it('rejects a protected route with no Authorization header', async () => {
+    const app = await buildGuarded();
+    const response = await app.inject({ method: 'GET', url: '/decks' });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ userId: STUB_USER_ID });
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toMatchObject({ code: 'UNAUTHENTICATED' });
     await app.close();
   });
 
-  it('uses the caller-supplied id', async () => {
-    const app = await buildProbe();
-    const userId = '550e8400-e29b-41d4-a716-446655440000';
-    const response = await app.inject({
-      method: 'GET',
-      url: '/whoami',
-      headers: { [USER_ID_HEADER]: userId },
-    });
+  it('rejects a malformed or non-bearer Authorization header', async () => {
+    const app = await buildGuarded();
 
-    expect(response.json()).toEqual({ userId });
-    await app.close();
-  });
-
-  it('accepts well-formed ids that fail the strict RFC version/variant check', async () => {
-    const app = await buildProbe();
-
-    for (const userId of [STUB_USER_ID, '11111111-2222-3333-4444-555555555555']) {
+    for (const header of ['Basic abc123', 'Bearer', 'Bearer   ', 'token abc']) {
       const response = await app.inject({
         method: 'GET',
-        url: '/whoami',
-        headers: { [USER_ID_HEADER]: userId },
+        url: '/decks',
+        headers: { authorization: header },
       });
-      expect(response.statusCode, `${userId} should be accepted`).toBe(200);
-      expect(response.json()).toEqual({ userId });
+      expect(response.statusCode, `"${header}" should be rejected`).toBe(401);
     }
 
     await app.close();
   });
 
-  it('rejects an id that is not a UUID at all', async () => {
-    const app = await buildProbe();
+  it('rejects a token that is not signed by this server', async () => {
+    const app = await buildGuarded();
     const response = await app.inject({
       method: 'GET',
-      url: '/whoami',
-      headers: { [USER_ID_HEADER]: 'not-a-uuid' },
+      url: '/decks',
+      headers: { authorization: 'Bearer not.a.jwt' },
     });
 
-    expect(response.statusCode).toBe(400);
+    expect(response.statusCode).toBe(401);
+    await app.close();
+  });
+
+  it('lets a public route through untouched', async () => {
+    const app = await buildGuarded();
+    const response = await app.inject({ method: 'GET', url: '/health' });
+
+    expect(response.statusCode).toBe(200);
     await app.close();
   });
 });

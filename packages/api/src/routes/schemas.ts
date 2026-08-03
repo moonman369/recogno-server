@@ -21,6 +21,10 @@ export const patternOptionSchema = z.object({
   id: z.int(),
   slug: z.string().meta({ example: 'sliding-window' }),
   name: z.string().meta({ example: 'Sliding Window' }),
+  category: z.string().meta({
+    description: 'Study grouping. Group the picker by this — there are ~80 patterns.',
+    example: 'Two Pointers',
+  }),
 });
 
 /** Exactly what a learner may see before guessing — no pattern, no tell. */
@@ -28,10 +32,10 @@ export const blindProblemSchema = z.object({
   id: z.int(),
   slug: z.string(),
   title: z.string(),
-  statement: z.string(),
-  constraints: z.string(),
+  statement: z.string().nullable(),
+  constraints: z.string().nullable(),
   sourceUrl: z.string().nullable(),
-  difficulty: z.enum(['easy', 'medium', 'hard']),
+  difficulty: z.enum(['easy', 'medium', 'hard']).nullable(),
 });
 
 export const nextResponseSchema = z.object({
@@ -50,21 +54,55 @@ export const nextResponseSchema = z.object({
     .meta({ description: 'The full taxonomy to choose from. Reveals nothing about the answer.' }),
 });
 
-export const submitBodySchema = z.object({
-  problemId: z.int().positive(),
-  guessedPatternId: z.int().positive().meta({ description: 'An `id` from `patternOptions`.' }),
-  rationaleText: z
-    .string()
-    .trim()
-    .min(1, 'rationaleText is required')
-    .max(4000)
-    .meta({ description: 'Why the learner thinks it is that pattern. Graded by Gemini.' }),
-  timeTakenSeconds: z
-    .number()
-    .min(0)
-    .max(60 * 60)
-    .meta({ description: 'Seconds from seeing the problem to guessing. Drives the speed score.' }),
-});
+/** Upper bound on guesses, so "select everything" is not a strategy. */
+export const MAX_GUESSED_PATTERNS = 5;
+
+export const submitBodySchema = z
+  .object({
+    problemId: z.int().positive(),
+    guessedPatternIds: z
+      .array(z.int().positive())
+      .min(1)
+      .max(MAX_GUESSED_PATTERNS)
+      .optional()
+      .meta({
+        description:
+          'One or more `id` values from `patternOptions`. Use this when a problem is a fair ' +
+          'read as more than one pattern.',
+      }),
+    guessedPatternSlugs: z
+      .array(z.string().trim().min(1))
+      .min(1)
+      .max(MAX_GUESSED_PATTERNS)
+      .optional()
+      .meta({ description: 'One or more `slug` values from `patternOptions`, instead of ids.' }),
+    guessedPatternId: z.int().positive().optional().meta({
+      description: 'Single-guess shorthand, kept for existing clients.',
+    }),
+    rationaleText: z
+      .string()
+      .trim()
+      .min(1, 'rationaleText is required')
+      .max(4000)
+      .meta({ description: 'Why the learner thinks it is that pattern. Graded by Gemini.' }),
+    timeTakenSeconds: z
+      .number()
+      .min(0)
+      .max(60 * 60)
+      .meta({
+        description: 'Seconds from seeing the problem to guessing. Drives the speed score.',
+      }),
+  })
+  .refine(
+    (body) =>
+      (body.guessedPatternIds?.length ?? 0) > 0 ||
+      (body.guessedPatternSlugs?.length ?? 0) > 0 ||
+      body.guessedPatternId !== undefined,
+    {
+      error: 'Provide guessedPatternIds, guessedPatternSlugs, or guessedPatternId',
+      path: ['guessedPatternIds'],
+    },
+  );
 
 export type SubmitBody = z.infer<typeof submitBodySchema>;
 
@@ -77,9 +115,23 @@ const scoresSchema = z.object({
 
 export const submitResponseSchema = z.object({
   attemptId: z.string().nullish(),
-  correct: z.boolean().meta({ description: 'True only on an exact pattern match.' }),
-  guessedPattern: patternOptionSchema,
-  actualPattern: patternOptionSchema.extend({ description: z.string() }),
+  correct: z
+    .boolean()
+    .meta({ description: 'True when any guess exactly matched any accepted pattern.' }),
+  guessedPattern: patternOptionSchema.meta({
+    description: 'The first guess. See `guessedPatterns` for all of them.',
+  }),
+  guessedPatterns: z.array(patternOptionSchema).meta({
+    description: 'Every pattern the learner named, in the order given.',
+  }),
+  actualPattern: patternOptionSchema
+    .extend({ description: z.string() })
+    .meta({ description: 'The canonical pattern; the one the tell explains.' }),
+  acceptedPatterns: z.array(patternOptionSchema).meta({
+    description:
+      'Every pattern that counts as correct for this problem, including the canonical one. ' +
+      'Naming any single one of these is full credit.',
+  }),
   tell: z
     .string()
     .nullable()

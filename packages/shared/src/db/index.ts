@@ -13,8 +13,11 @@ const log = createLogger('db');
  */
 export const client = postgres(env.DATABASE_URL, {
   max: isProduction ? 10 : 5,
-  idle_timeout: 20,
-  connect_timeout: 10,
+  // Neon suspends an idle compute and takes several seconds to wake. Holding
+  // connections a little longer avoids paying that cost between quick requests,
+  // and 30s of patience covers a cold start that 10s would have aborted.
+  idle_timeout: 60,
+  connect_timeout: 30,
   prepare: false,
 });
 

@@ -1,14 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const generateContent = vi.hoisted(() => vi.fn());
+const generateText = vi.hoisted(() => vi.fn());
 
-vi.mock('@google/generative-ai', () => ({
-  GoogleGenerativeAI: class {
-    getGenerativeModel() {
-      return { generateContent };
-    }
-  },
-}));
+vi.mock('@recogno/shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@recogno/shared')>();
+  return { ...actual, generateText };
+});
 
 const { FALLBACK_VERDICT, judgeRationale, parseRationaleVerdict } = await import('./rationale.js');
 
@@ -20,7 +17,7 @@ const input = {
   rationaleText: 'The answer space is huge but feasibility is monotone in k.',
 };
 
-const geminiSaying = (text: string) => ({ response: { text: () => text } });
+const geminiSaying = (text: string) => ({ text, model: 'gemini-flash-latest' });
 
 describe('parseRationaleVerdict', () => {
   it('reads a bare one-word answer', () => {
@@ -53,7 +50,7 @@ describe('parseRationaleVerdict', () => {
 
 describe('judgeRationale', () => {
   beforeEach(() => {
-    generateContent.mockReset();
+    generateText.mockReset();
   });
 
   afterEach(() => {
@@ -61,18 +58,18 @@ describe('judgeRationale', () => {
   });
 
   it('returns the parsed verdict and marks it judged', async () => {
-    generateContent.mockResolvedValue(geminiSaying('yes'));
+    generateText.mockResolvedValue(geminiSaying('yes'));
 
     await expect(judgeRationale(input)).resolves.toEqual({ verdict: 'yes', judged: true });
-    expect(generateContent).toHaveBeenCalledTimes(1);
+    expect(generateText).toHaveBeenCalledTimes(1);
   });
 
   it('sends the constraints and both pattern names in the prompt', async () => {
-    generateContent.mockResolvedValue(geminiSaying('partial'));
+    generateText.mockResolvedValue(geminiSaying('partial'));
 
     await judgeRationale(input);
 
-    const prompt = String(generateContent.mock.calls[0]?.[0]);
+    const prompt = String(generateText.mock.calls[0]?.[0]?.prompt);
     expect(prompt).toContain(input.constraints);
     expect(prompt).toContain(input.rationaleText);
     expect(prompt).toContain('Binary Search on Answer');
@@ -80,7 +77,7 @@ describe('judgeRationale', () => {
   });
 
   it('falls back neutrally when the response cannot be parsed', async () => {
-    generateContent.mockResolvedValue(geminiSaying('I am not sure about this one.'));
+    generateText.mockResolvedValue(geminiSaying('I am not sure about this one.'));
 
     await expect(judgeRationale(input)).resolves.toEqual({
       verdict: FALLBACK_VERDICT,
@@ -89,7 +86,7 @@ describe('judgeRationale', () => {
   });
 
   it('falls back neutrally when Gemini throws, rather than failing the attempt', async () => {
-    generateContent.mockRejectedValue(new Error('503 model overloaded'));
+    generateText.mockRejectedValue(new Error('503 model overloaded'));
 
     await expect(judgeRationale(input)).resolves.toEqual({
       verdict: FALLBACK_VERDICT,

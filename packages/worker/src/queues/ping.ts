@@ -1,6 +1,5 @@
-import { createLogger } from '@recogno/shared';
+import { createLogger, getRedisConnection } from '@recogno/shared';
 import { type Job, Queue, Worker } from 'bullmq';
-import { connection } from '../redis.js';
 
 const log = createLogger('queue:ping');
 
@@ -16,7 +15,7 @@ export interface PingJobResult {
 }
 
 export const pingQueue = new Queue<PingJobData, PingJobResult>(PING_QUEUE, {
-  connection,
+  connection: getRedisConnection(),
   defaultJobOptions: {
     attempts: 3,
     backoff: { type: 'exponential', delay: 1_000 },
@@ -37,7 +36,7 @@ export function createPingWorker(): Worker<PingJobData, PingJobResult> {
       log.info({ jobId: job.id, data: job.data }, 'Processing ping job');
       return { echoedAt: new Date().toISOString() };
     },
-    { connection, concurrency: 5 },
+    { connection: getRedisConnection(), concurrency: 5 },
   );
 
   worker.on('completed', (job, result) => {
