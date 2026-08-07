@@ -1,0 +1,3502 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Recogno API",
+    "description": "Backend for Recogno, a spaced-repetition trainer for DSA and system-design pattern recognition.\n\nThe drill loop is: `GET /drill/next` for a problem stripped of its answer, `POST /drill/submit` to grade a guess and advance its FSRS card, `GET /drill/due-count` for the reps-due badge.",
+    "version": "1.0.0"
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Access token from POST /auth/login, /auth/register or the Google callback. Paste just the token — Swagger adds the \"Bearer \" prefix."
+      }
+    },
+    "schemas": {}
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Readiness probe",
+        "tags": [
+          "system"
+        ],
+        "description": "Runs `SELECT 1` against Postgres. Returns 503 if the database is unreachable.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "description": "True when every dependency answered."
+                    },
+                    "db": {
+                      "type": "boolean",
+                      "description": "Result of a `SELECT 1` against Postgres."
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "db"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "description": "True when every dependency answered."
+                    },
+                    "db": {
+                      "type": "boolean",
+                      "description": "Result of a `SELECT 1` against Postgres."
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "db"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/providers": {
+      "get": {
+        "summary": "Which sign-in methods this deployment supports",
+        "tags": [
+          "auth"
+        ],
+        "description": "Lets a client hide a Google button that would not work.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "password": {
+                      "type": "boolean",
+                      "description": "Email + password sign-in is always available."
+                    },
+                    "google": {
+                      "type": "boolean",
+                      "description": "True only when GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are configured."
+                    }
+                  },
+                  "required": [
+                    "password",
+                    "google"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/register": {
+      "post": {
+        "summary": "Create an account with email and password",
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "maxLength": 320,
+                    "format": "email",
+                    "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 200
+                  },
+                  "displayName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  }
+                },
+                "required": [
+                  "email",
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "security": [],
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "email": {
+                          "type": "string"
+                        },
+                        "displayName": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "avatarUrl": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "emailVerified": {
+                          "type": "boolean"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "email",
+                        "displayName",
+                        "avatarUrl",
+                        "emailVerified",
+                        "createdAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "accessToken": {
+                      "type": "string",
+                      "description": "Send as `Authorization: Bearer <token>`."
+                    },
+                    "refreshToken": {
+                      "type": "string",
+                      "description": "Opaque. Exchange at POST /auth/refresh; it rotates on every use."
+                    },
+                    "tokenType": {
+                      "type": "string",
+                      "enum": [
+                        "Bearer"
+                      ]
+                    },
+                    "expiresIn": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991,
+                      "description": "Access token lifetime in seconds."
+                    }
+                  },
+                  "required": [
+                    "user",
+                    "accessToken",
+                    "refreshToken",
+                    "tokenType",
+                    "expiresIn"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "summary": "Sign in with email and password",
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "maxLength": 320,
+                    "format": "email",
+                    "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
+                },
+                "required": [
+                  "email",
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "email": {
+                          "type": "string"
+                        },
+                        "displayName": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "avatarUrl": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "emailVerified": {
+                          "type": "boolean"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "email",
+                        "displayName",
+                        "avatarUrl",
+                        "emailVerified",
+                        "createdAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "accessToken": {
+                      "type": "string",
+                      "description": "Send as `Authorization: Bearer <token>`."
+                    },
+                    "refreshToken": {
+                      "type": "string",
+                      "description": "Opaque. Exchange at POST /auth/refresh; it rotates on every use."
+                    },
+                    "tokenType": {
+                      "type": "string",
+                      "enum": [
+                        "Bearer"
+                      ]
+                    },
+                    "expiresIn": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991,
+                      "description": "Access token lifetime in seconds."
+                    }
+                  },
+                  "required": [
+                    "user",
+                    "accessToken",
+                    "refreshToken",
+                    "tokenType",
+                    "expiresIn"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "summary": "Exchange a refresh token for a new session",
+        "tags": [
+          "auth"
+        ],
+        "description": "The presented token is revoked and replaced, so it cannot be reused.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "refreshToken": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "refreshToken"
+                ]
+              }
+            }
+          }
+        },
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "email": {
+                          "type": "string"
+                        },
+                        "displayName": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "avatarUrl": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "emailVerified": {
+                          "type": "boolean"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "email",
+                        "displayName",
+                        "avatarUrl",
+                        "emailVerified",
+                        "createdAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "accessToken": {
+                      "type": "string",
+                      "description": "Send as `Authorization: Bearer <token>`."
+                    },
+                    "refreshToken": {
+                      "type": "string",
+                      "description": "Opaque. Exchange at POST /auth/refresh; it rotates on every use."
+                    },
+                    "tokenType": {
+                      "type": "string",
+                      "enum": [
+                        "Bearer"
+                      ]
+                    },
+                    "expiresIn": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991,
+                      "description": "Access token lifetime in seconds."
+                    }
+                  },
+                  "required": [
+                    "user",
+                    "accessToken",
+                    "refreshToken",
+                    "tokenType",
+                    "expiresIn"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "summary": "Revoke a refresh token",
+        "tags": [
+          "auth"
+        ],
+        "description": "Idempotent. The access token remains valid until it expires.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "refreshToken": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "refreshToken"
+                ]
+              }
+            }
+          }
+        },
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/auth/google": {
+      "get": {
+        "summary": "Begin Google sign-in",
+        "tags": [
+          "auth"
+        ],
+        "description": "Redirects to Google. Returns 501 when the server has no Google credentials — call `GET /auth/providers` first to find out.",
+        "security": [],
+        "responses": {
+          "302": {
+            "description": "Default Response"
+          },
+          "501": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/google/callback": {
+      "get": {
+        "summary": "Google sign-in callback",
+        "tags": [
+          "auth"
+        ],
+        "description": "Exchanges the authorization code for a Recogno session. Redirects to OAUTH_SUCCESS_REDIRECT when set, otherwise returns the session as JSON.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "email": {
+                          "type": "string"
+                        },
+                        "displayName": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "avatarUrl": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "emailVerified": {
+                          "type": "boolean"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "email",
+                        "displayName",
+                        "avatarUrl",
+                        "emailVerified",
+                        "createdAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "accessToken": {
+                      "type": "string",
+                      "description": "Send as `Authorization: Bearer <token>`."
+                    },
+                    "refreshToken": {
+                      "type": "string",
+                      "description": "Opaque. Exchange at POST /auth/refresh; it rotates on every use."
+                    },
+                    "tokenType": {
+                      "type": "string",
+                      "enum": [
+                        "Bearer"
+                      ]
+                    },
+                    "expiresIn": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991,
+                      "description": "Access token lifetime in seconds."
+                    }
+                  },
+                  "required": [
+                    "user",
+                    "accessToken",
+                    "refreshToken",
+                    "tokenType",
+                    "expiresIn"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "302": {
+            "description": "Default Response"
+          },
+          "400": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "summary": "The signed-in user",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "email": {
+                          "type": "string"
+                        },
+                        "displayName": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "avatarUrl": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "emailVerified": {
+                          "type": "boolean"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "email",
+                        "displayName",
+                        "avatarUrl",
+                        "emailVerified",
+                        "createdAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "user"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout-all": {
+      "post": {
+        "summary": "Revoke every session for this account",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "204": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/drill/next": {
+      "get": {
+        "summary": "Get a problem to recognise",
+        "tags": [
+          "drill"
+        ],
+        "description": "Returns the statement and constraints only. The ground-truth pattern and the tell are withheld until the guess is submitted.\n\nPrefers an SRS card that is due, then a problem never seen, then the soonest-due card.",
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "problem": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "slug": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "statement": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "constraints": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "sourceUrl": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "difficulty": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "easy",
+                                "medium",
+                                "hard"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "slug",
+                        "title",
+                        "statement",
+                        "constraints",
+                        "sourceUrl",
+                        "difficulty"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "due",
+                        "unseen",
+                        "review-ahead"
+                      ],
+                      "description": "Which branch supplied this problem: a card that is due, a problem never seen, or the soonest-due card when nothing is due yet."
+                    },
+                    "dueAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "When the card fell due. Null if this problem is new to the user."
+                    },
+                    "patternOptions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "slug": {
+                            "type": "string",
+                            "example": "sliding-window"
+                          },
+                          "name": {
+                            "type": "string",
+                            "example": "Sliding Window"
+                          },
+                          "category": {
+                            "type": "string",
+                            "description": "Study grouping. Group the picker by this — there are ~80 patterns.",
+                            "example": "Two Pointers"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "slug",
+                          "name",
+                          "category"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "description": "The full taxonomy to choose from. Reveals nothing about the answer."
+                    }
+                  },
+                  "required": [
+                    "problem",
+                    "source",
+                    "dueAt",
+                    "patternOptions"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/drill/submit": {
+      "post": {
+        "summary": "Submit a guess and advance the schedule",
+        "tags": [
+          "drill"
+        ],
+        "description": "Grades correctness, speed and rationale, combines them into a composite, maps that onto an FSRS rating, and upserts the SRS card. Reveals the tell in the response.\n\nA wrong guess cannot exceed the Hard band however fast or well argued it was, and a correct guess with no real reasoning lands there too.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "problemId": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "guessedPatternIds": {
+                    "description": "One or more `id` values from `patternOptions`. Use this when a problem is a fair read as more than one pattern.",
+                    "minItems": 1,
+                    "maxItems": 5,
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "guessedPatternSlugs": {
+                    "description": "One or more `slug` values from `patternOptions`, instead of ids.",
+                    "minItems": 1,
+                    "maxItems": 5,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "guessedPatternId": {
+                    "description": "Single-guess shorthand, kept for existing clients.",
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "rationaleText": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000,
+                    "description": "Why the learner thinks it is that pattern. Graded by Gemini."
+                  },
+                  "timeTakenSeconds": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 3600,
+                    "description": "Seconds from seeing the problem to guessing. Drives the speed score."
+                  }
+                },
+                "required": [
+                  "problemId",
+                  "rationaleText",
+                  "timeTakenSeconds"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "attemptId": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "correct": {
+                      "type": "boolean",
+                      "description": "True when any guess exactly matched any accepted pattern."
+                    },
+                    "guessedPattern": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "slug": {
+                          "type": "string",
+                          "example": "sliding-window"
+                        },
+                        "name": {
+                          "type": "string",
+                          "example": "Sliding Window"
+                        },
+                        "category": {
+                          "type": "string",
+                          "description": "Study grouping. Group the picker by this — there are ~80 patterns.",
+                          "example": "Two Pointers"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "slug",
+                        "name",
+                        "category"
+                      ],
+                      "additionalProperties": false,
+                      "description": "The first guess. See `guessedPatterns` for all of them."
+                    },
+                    "guessedPatterns": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "slug": {
+                            "type": "string",
+                            "example": "sliding-window"
+                          },
+                          "name": {
+                            "type": "string",
+                            "example": "Sliding Window"
+                          },
+                          "category": {
+                            "type": "string",
+                            "description": "Study grouping. Group the picker by this — there are ~80 patterns.",
+                            "example": "Two Pointers"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "slug",
+                          "name",
+                          "category"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "description": "Every pattern the learner named, in the order given."
+                    },
+                    "actualPattern": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "slug": {
+                          "type": "string",
+                          "example": "sliding-window"
+                        },
+                        "name": {
+                          "type": "string",
+                          "example": "Sliding Window"
+                        },
+                        "category": {
+                          "type": "string",
+                          "description": "Study grouping. Group the picker by this — there are ~80 patterns.",
+                          "example": "Two Pointers"
+                        },
+                        "description": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "slug",
+                        "name",
+                        "category",
+                        "description"
+                      ],
+                      "additionalProperties": false,
+                      "description": "The canonical pattern; the one the tell explains."
+                    },
+                    "acceptedPatterns": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "slug": {
+                            "type": "string",
+                            "example": "sliding-window"
+                          },
+                          "name": {
+                            "type": "string",
+                            "example": "Sliding Window"
+                          },
+                          "category": {
+                            "type": "string",
+                            "description": "Study grouping. Group the picker by this — there are ~80 patterns.",
+                            "example": "Two Pointers"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "slug",
+                          "name",
+                          "category"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "description": "Every pattern that counts as correct for this problem, including the canonical one. Naming any single one of these is full credit."
+                    },
+                    "tell": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "The pre-written \"why this pattern\" explanation. Null if none exists."
+                    },
+                    "explanation": {
+                      "type": "string",
+                      "description": "Plain-language summary of the grade."
+                    },
+                    "scores": {
+                      "type": "object",
+                      "properties": {
+                        "correctness": {
+                          "type": "number",
+                          "description": "1 exact, 0.5 close family, 0 otherwise."
+                        },
+                        "speed": {
+                          "type": "number",
+                          "description": "Linear from 1.0 at 0s to 0.0 at 90s."
+                        },
+                        "rationale": {
+                          "type": "number",
+                          "description": "1 yes, 0.5 partial, 0 no."
+                        },
+                        "composite": {
+                          "type": "number",
+                          "description": "Weighted average: 0.5 / 0.2 / 0.3."
+                        }
+                      },
+                      "required": [
+                        "correctness",
+                        "speed",
+                        "rationale",
+                        "composite"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "rationale": {
+                      "type": "object",
+                      "properties": {
+                        "verdict": {
+                          "type": "string",
+                          "enum": [
+                            "yes",
+                            "partial",
+                            "no"
+                          ]
+                        },
+                        "judged": {
+                          "type": "boolean",
+                          "description": "False when Gemini was unreachable and the rationale scored neutrally."
+                        }
+                      },
+                      "required": [
+                        "verdict",
+                        "judged"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "review": {
+                      "type": "object",
+                      "properties": {
+                        "rating": {
+                          "type": "string",
+                          "enum": [
+                            "Again",
+                            "Hard",
+                            "Good",
+                            "Easy"
+                          ],
+                          "description": "The FSRS grade the composite mapped onto."
+                        },
+                        "previousDueAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "dueAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "description": "When this problem comes back around."
+                        },
+                        "scheduledDays": {
+                          "type": "number"
+                        },
+                        "state": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991,
+                          "description": "0 New, 1 Learning, 2 Review, 3 Relearning."
+                        },
+                        "reps": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "lapses": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "stability": {
+                          "type": "number"
+                        },
+                        "difficulty": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "rating",
+                        "previousDueAt",
+                        "dueAt",
+                        "scheduledDays",
+                        "state",
+                        "reps",
+                        "lapses",
+                        "stability",
+                        "difficulty"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "correct",
+                    "guessedPattern",
+                    "guessedPatterns",
+                    "actualPattern",
+                    "acceptedPatterns",
+                    "tell",
+                    "explanation",
+                    "scores",
+                    "rationale",
+                    "review"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/drill/due-count": {
+      "get": {
+        "summary": "Count the drill reps waiting",
+        "tags": [
+          "drill"
+        ],
+        "description": "Drill-eligible cards whose due date has passed. For the badge that spans both flows, use `GET /review/due-count`.",
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "dueCount": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991,
+                      "description": "Cards due now — the \"X reps due today\" badge."
+                    },
+                    "nextDueAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "When the soonest card falls due. Null if the user has no cards."
+                    }
+                  },
+                  "required": [
+                    "dueCount",
+                    "nextDueAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/decks": {
+      "get": {
+        "summary": "List decks",
+        "tags": [
+          "decks"
+        ],
+        "description": "Every system deck plus the caller's own, with problem counts.",
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "decks": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "slug": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "isSystem": {
+                            "type": "boolean",
+                            "description": "System decks hold the curated bank and are read-only."
+                          },
+                          "problemCount": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "slug",
+                          "name",
+                          "description",
+                          "isSystem",
+                          "problemCount"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "decks"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a personal deck",
+        "tags": [
+          "decks"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 2000
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "slug": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "isSystem": {
+                      "type": "boolean",
+                      "description": "System decks hold the curated bank and are read-only."
+                    },
+                    "problemCount": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "slug",
+                    "name",
+                    "description",
+                    "isSystem",
+                    "problemCount"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/decks/{deckId}": {
+      "get": {
+        "summary": "Deck detail with its problems",
+        "tags": [
+          "decks"
+        ],
+        "description": "Each problem carries the review `mode` it belongs to: `drill` when a curator gave it a pattern and a tell, `note` otherwise.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "deckId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "slug": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "isSystem": {
+                      "type": "boolean",
+                      "description": "System decks hold the curated bank and are read-only."
+                    },
+                    "problemCount": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "problems": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "slug": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "difficulty": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "easy",
+                                  "medium",
+                                  "hard"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "source": {
+                            "type": "string",
+                            "enum": [
+                              "curated",
+                              "link",
+                              "slug",
+                              "text"
+                            ]
+                          },
+                          "sourceUrl": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "mode": {
+                            "type": "string",
+                            "enum": [
+                              "drill",
+                              "note"
+                            ],
+                            "description": "Which review flow this problem uses. Decided by whether it has a pattern + tell."
+                          },
+                          "dueAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "slug",
+                          "title",
+                          "difficulty",
+                          "source",
+                          "sourceUrl",
+                          "mode",
+                          "dueAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "slug",
+                    "name",
+                    "description",
+                    "isSystem",
+                    "problemCount",
+                    "problems"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/decks/{deckId}/problems": {
+      "post": {
+        "summary": "Add a problem and record the first attempt",
+        "tags": [
+          "decks"
+        ],
+        "description": "Accepts a link, a slug or a free-text description, together with the note and solution.\n\nReturns immediately with a queued submission: resolving the source and running the AI evaluation happen on the worker. Poll `GET /submissions/{id}` for progress.\n\nAdding a problem that already exists in the deck records another attempt against it rather than failing.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "input": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 20000,
+                    "description": "A problem link, a slug, or a free-text description."
+                  },
+                  "source": {
+                    "description": "Force the interpretation of `input`. Auto-detected when omitted.",
+                    "type": "string",
+                    "enum": [
+                      "link",
+                      "slug",
+                      "text"
+                    ]
+                  },
+                  "title": {
+                    "description": "Overrides the title derived from the input.",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "noteText": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 20000,
+                    "description": "The approach taken and any issues faced."
+                  },
+                  "solutionText": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 50000,
+                    "description": "Code, pseudocode or prose. Stored opaquely and never parsed."
+                  }
+                },
+                "required": [
+                  "input",
+                  "noteText",
+                  "solutionText"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "deckId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "problemId": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "submission": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "problemId": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "problemTitle": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "queued",
+                            "resolving-source",
+                            "evaluating",
+                            "awaiting-review",
+                            "committed",
+                            "failed"
+                          ]
+                        },
+                        "failureReason": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "noteText": {
+                          "type": "string"
+                        },
+                        "solutionText": {
+                          "type": "string"
+                        },
+                        "stages": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "stage": {
+                                "type": "string",
+                                "enum": [
+                                  "resolve-source",
+                                  "evaluate"
+                                ]
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "pending",
+                                  "running",
+                                  "done",
+                                  "failed"
+                                ]
+                              },
+                              "position": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "detail": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "startedAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "finishedAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "stage",
+                              "status",
+                              "position",
+                              "detail",
+                              "startedAt",
+                              "finishedAt"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "description": "Only steps that genuinely run for this submission, in display order."
+                        },
+                        "evaluation": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "gradation": {
+                                  "type": "string",
+                                  "enum": [
+                                    "try-again",
+                                    "needs-work",
+                                    "not-bad",
+                                    "good-job",
+                                    "excellent"
+                                  ]
+                                },
+                                "label": {
+                                  "type": "string"
+                                },
+                                "approachSummary": {
+                                  "type": "string"
+                                },
+                                "missed": {
+                                  "type": "string"
+                                },
+                                "optimizations": {
+                                  "type": "string"
+                                },
+                                "model": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "gradation",
+                                "label",
+                                "approachSummary",
+                                "missed",
+                                "optimizations",
+                                "model"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Null until the evaluate stage completes."
+                        },
+                        "finalGradation": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "try-again",
+                                "needs-work",
+                                "not-bad",
+                                "good-job",
+                                "excellent"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "overridden": {
+                          "type": "boolean"
+                        },
+                        "committedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "problemId",
+                        "problemTitle",
+                        "status",
+                        "failureReason",
+                        "noteText",
+                        "solutionText",
+                        "stages",
+                        "evaluation",
+                        "finalGradation",
+                        "overridden",
+                        "committedAt",
+                        "createdAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "problemId",
+                    "submission"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/submissions/{submissionId}": {
+      "get": {
+        "summary": "Poll a submission",
+        "tags": [
+          "submissions"
+        ],
+        "description": "Returns the pipeline stages and, once evaluation finishes, the AI gradation and explanation. `status` reaches `awaiting-review` when it is ready to commit.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "submissionId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "problemId": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "problemTitle": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "queued",
+                        "resolving-source",
+                        "evaluating",
+                        "awaiting-review",
+                        "committed",
+                        "failed"
+                      ]
+                    },
+                    "failureReason": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "noteText": {
+                      "type": "string"
+                    },
+                    "solutionText": {
+                      "type": "string"
+                    },
+                    "stages": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "stage": {
+                            "type": "string",
+                            "enum": [
+                              "resolve-source",
+                              "evaluate"
+                            ]
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "pending",
+                              "running",
+                              "done",
+                              "failed"
+                            ]
+                          },
+                          "position": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "detail": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "startedAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "finishedAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "stage",
+                          "status",
+                          "position",
+                          "detail",
+                          "startedAt",
+                          "finishedAt"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "description": "Only steps that genuinely run for this submission, in display order."
+                    },
+                    "evaluation": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "gradation": {
+                              "type": "string",
+                              "enum": [
+                                "try-again",
+                                "needs-work",
+                                "not-bad",
+                                "good-job",
+                                "excellent"
+                              ]
+                            },
+                            "label": {
+                              "type": "string"
+                            },
+                            "approachSummary": {
+                              "type": "string"
+                            },
+                            "missed": {
+                              "type": "string"
+                            },
+                            "optimizations": {
+                              "type": "string"
+                            },
+                            "model": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "gradation",
+                            "label",
+                            "approachSummary",
+                            "missed",
+                            "optimizations",
+                            "model"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Null until the evaluate stage completes."
+                    },
+                    "finalGradation": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "try-again",
+                            "needs-work",
+                            "not-bad",
+                            "good-job",
+                            "excellent"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "overridden": {
+                      "type": "boolean"
+                    },
+                    "committedAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "problemId",
+                    "problemTitle",
+                    "status",
+                    "failureReason",
+                    "noteText",
+                    "solutionText",
+                    "stages",
+                    "evaluation",
+                    "finalGradation",
+                    "overridden",
+                    "committedAt",
+                    "createdAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/submissions/{submissionId}/commit": {
+      "post": {
+        "summary": "Accept or override the grade, and reschedule",
+        "tags": [
+          "submissions"
+        ],
+        "description": "The final gradation drives FSRS. Omit `gradation` to accept the AI's verdict; supply one to override it.\n\nA submission whose evaluation failed can still be committed, but only with an explicit gradation — the learner self-grades rather than losing the attempt.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "gradation": {
+                    "description": "Overrides the AI's grade. Required when the evaluation failed.",
+                    "type": "string",
+                    "enum": [
+                      "try-again",
+                      "needs-work",
+                      "not-bad",
+                      "good-job",
+                      "excellent"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "submissionId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "submissionId": {
+                      "type": "string"
+                    },
+                    "finalGradation": {
+                      "type": "string",
+                      "enum": [
+                        "try-again",
+                        "needs-work",
+                        "not-bad",
+                        "good-job",
+                        "excellent"
+                      ]
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "overridden": {
+                      "type": "boolean"
+                    },
+                    "aiGradation": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "try-again",
+                            "needs-work",
+                            "not-bad",
+                            "good-job",
+                            "excellent"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "review": {
+                      "type": "object",
+                      "properties": {
+                        "rating": {
+                          "type": "string",
+                          "enum": [
+                            "Again",
+                            "Hard",
+                            "Good",
+                            "Easy"
+                          ]
+                        },
+                        "previousDueAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "dueAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                        },
+                        "scheduledDays": {
+                          "type": "number"
+                        },
+                        "state": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "reps": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "lapses": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "stability": {
+                          "type": "number"
+                        },
+                        "difficulty": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "rating",
+                        "previousDueAt",
+                        "dueAt",
+                        "scheduledDays",
+                        "state",
+                        "reps",
+                        "lapses",
+                        "stability",
+                        "difficulty"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "submissionId",
+                    "finalGradation",
+                    "label",
+                    "overridden",
+                    "aiGradation",
+                    "review"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/problems/{problemId}/submissions": {
+      "post": {
+        "summary": "Record another attempt at a problem",
+        "tags": [
+          "submissions"
+        ],
+        "description": "The repeat-encounter path: a problem came due, the learner worked it again, and this is a fresh submission rather than an edit of the last one, so history is preserved.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "noteText": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 20000,
+                    "description": "The approach taken and any issues faced."
+                  },
+                  "solutionText": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 50000,
+                    "description": "Code, pseudocode or prose. Stored opaquely and never parsed."
+                  }
+                },
+                "required": [
+                  "noteText",
+                  "solutionText"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "problemId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "problemId": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "problemTitle": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "queued",
+                        "resolving-source",
+                        "evaluating",
+                        "awaiting-review",
+                        "committed",
+                        "failed"
+                      ]
+                    },
+                    "failureReason": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "noteText": {
+                      "type": "string"
+                    },
+                    "solutionText": {
+                      "type": "string"
+                    },
+                    "stages": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "stage": {
+                            "type": "string",
+                            "enum": [
+                              "resolve-source",
+                              "evaluate"
+                            ]
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "pending",
+                              "running",
+                              "done",
+                              "failed"
+                            ]
+                          },
+                          "position": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "detail": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "startedAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "finishedAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "stage",
+                          "status",
+                          "position",
+                          "detail",
+                          "startedAt",
+                          "finishedAt"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "description": "Only steps that genuinely run for this submission, in display order."
+                    },
+                    "evaluation": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "gradation": {
+                              "type": "string",
+                              "enum": [
+                                "try-again",
+                                "needs-work",
+                                "not-bad",
+                                "good-job",
+                                "excellent"
+                              ]
+                            },
+                            "label": {
+                              "type": "string"
+                            },
+                            "approachSummary": {
+                              "type": "string"
+                            },
+                            "missed": {
+                              "type": "string"
+                            },
+                            "optimizations": {
+                              "type": "string"
+                            },
+                            "model": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "gradation",
+                            "label",
+                            "approachSummary",
+                            "missed",
+                            "optimizations",
+                            "model"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Null until the evaluate stage completes."
+                    },
+                    "finalGradation": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "try-again",
+                            "needs-work",
+                            "not-bad",
+                            "good-job",
+                            "excellent"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "overridden": {
+                      "type": "boolean"
+                    },
+                    "committedAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "problemId",
+                    "problemTitle",
+                    "status",
+                    "failureReason",
+                    "noteText",
+                    "solutionText",
+                    "stages",
+                    "evaluation",
+                    "finalGradation",
+                    "overridden",
+                    "committedAt",
+                    "createdAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "Attempt history for a problem",
+        "tags": [
+          "submissions"
+        ],
+        "description": "Newest first. Every encounter is its own record.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "problemId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "submissions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "problemId": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "problemTitle": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "queued",
+                              "resolving-source",
+                              "evaluating",
+                              "awaiting-review",
+                              "committed",
+                              "failed"
+                            ]
+                          },
+                          "failureReason": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "noteText": {
+                            "type": "string"
+                          },
+                          "solutionText": {
+                            "type": "string"
+                          },
+                          "stages": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "stage": {
+                                  "type": "string",
+                                  "enum": [
+                                    "resolve-source",
+                                    "evaluate"
+                                  ]
+                                },
+                                "status": {
+                                  "type": "string",
+                                  "enum": [
+                                    "pending",
+                                    "running",
+                                    "done",
+                                    "failed"
+                                  ]
+                                },
+                                "position": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "detail": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "startedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "finishedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "stage",
+                                "status",
+                                "position",
+                                "detail",
+                                "startedAt",
+                                "finishedAt"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "description": "Only steps that genuinely run for this submission, in display order."
+                          },
+                          "evaluation": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "gradation": {
+                                    "type": "string",
+                                    "enum": [
+                                      "try-again",
+                                      "needs-work",
+                                      "not-bad",
+                                      "good-job",
+                                      "excellent"
+                                    ]
+                                  },
+                                  "label": {
+                                    "type": "string"
+                                  },
+                                  "approachSummary": {
+                                    "type": "string"
+                                  },
+                                  "missed": {
+                                    "type": "string"
+                                  },
+                                  "optimizations": {
+                                    "type": "string"
+                                  },
+                                  "model": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "gradation",
+                                  "label",
+                                  "approachSummary",
+                                  "missed",
+                                  "optimizations",
+                                  "model"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Null until the evaluate stage completes."
+                          },
+                          "finalGradation": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "try-again",
+                                  "needs-work",
+                                  "not-bad",
+                                  "good-job",
+                                  "excellent"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "overridden": {
+                            "type": "boolean"
+                          },
+                          "committedAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "problemId",
+                          "problemTitle",
+                          "status",
+                          "failureReason",
+                          "noteText",
+                          "solutionText",
+                          "stages",
+                          "evaluation",
+                          "finalGradation",
+                          "overridden",
+                          "committedAt",
+                          "createdAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "submissions"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/review/due-count": {
+      "get": {
+        "summary": "Reps due across both flows",
+        "tags": [
+          "review"
+        ],
+        "description": "The unified badge count. Broken down by flow so a client can show \"3 drills, 2 writeups\".",
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "dueCount": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "drillDueCount": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991,
+                      "description": "Due cards eligible for the blind drill."
+                    },
+                    "noteDueCount": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991,
+                      "description": "Due cards graded by note + AI evaluation."
+                    },
+                    "nextDueAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "dueCount",
+                    "drillDueCount",
+                    "noteDueCount",
+                    "nextDueAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/review/queue": {
+      "get": {
+        "summary": "Everything due now, oldest first",
+        "tags": [
+          "review"
+        ],
+        "description": "Spans both flows. `mode` is `drill` for curated pattern-tagged problems and `note` for everything else.",
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "problemId": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "deckId": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "deckName": {
+                            "type": "string"
+                          },
+                          "mode": {
+                            "type": "string",
+                            "enum": [
+                              "drill",
+                              "note"
+                            ]
+                          },
+                          "dueAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                          },
+                          "reps": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "lapses": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "problemId",
+                          "title",
+                          "deckId",
+                          "deckName",
+                          "mode",
+                          "dueAt",
+                          "reps",
+                          "lapses"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "auth",
+      "description": "Sign-up, sign-in, sessions and Google OAuth"
+    },
+    {
+      "name": "review",
+      "description": "What is due now, across both review flows"
+    },
+    {
+      "name": "drill",
+      "description": "The Blind Recognition Drill loop (F1.1–F1.4)"
+    },
+    {
+      "name": "decks",
+      "description": "Deck containers and adding problems to them"
+    },
+    {
+      "name": "submissions",
+      "description": "Note + solution attempts, their AI evaluation, and committing a grade"
+    },
+    {
+      "name": "system",
+      "description": "Liveness and readiness"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "name": "@recogno/worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsup",
+    "start": "node dist/index.js",
+    "tells:generate": "tsx src/scripts/generateTells.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@recogno/shared": "workspace:*",
+    "bullmq": "^5.81.1",
+    "drizzle-orm": "^0.45.2",
+    "groq-sdk": "^1.4.0",
+    "ioredis": "^5.11.1"
+  }
+}
