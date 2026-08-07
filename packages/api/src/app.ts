@@ -20,6 +20,11 @@ export async function buildApp(): Promise<AppInstance> {
     // Widened to Fastify's own logger interface so the instance type stays the
     // plain `FastifyInstance` rather than leaking pino's generics into callers.
     loggerInstance: logger as FastifyBaseLogger,
+    routerOptions: {
+      // `/health/` should reach the same handler as `/health`; a client that
+      // appends a slash is not making a different request.
+      ignoreTrailingSlash: true,
+    },
   });
 
   // Route `schema` objects are plain Zod schemas rather than JSON Schema.

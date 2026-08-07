@@ -1,0 +1,81 @@
+# Production stack for the Oracle VM.
+#
+# Images are built and pushed to GHCR by .github/workflows/deploy.yml. The VM
+# only pulls them - it does not build.
+#
+# This file is placed on the VM BY HAND, once, as compose.yaml in the app
+# directory (/opt/recogno-server by default) alongside a hand-written .env.
+# The deploy job only runs `docker compose pull && up -d` against whatever is
+# already sitting there - see docs/DEPLOYMENT_SOP.md step 1.
+#
+# To roll back: change `:latest` below to `:sha-<full-commit-sha>` (every build
+# publishes that tag too) and run `docker compose up -d`.
+
+name: recogno
+
+services:
+  api:
+    image: ghcr.io/moonman369/recogno-api:latest
+    container_name: recogno-api
+    env_file:
+      - ./.env
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      REDIS_URL: redis://redis:6379
+    ports:
+      # Bind to loopback only: Nginx on the host reverse-proxies to this port,
+      # so the app is never exposed publicly and no VM firewall rule is needed
+      # for it. Only 80/443 are ever open.
+      - "127.0.0.1:3000:3000"
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    # The API image carries its own HEALTHCHECK (see docker/Dockerfile.api).
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  worker:
+    image: ghcr.io/moonman369/recogno-worker:latest
+    container_name: recogno-worker
+    env_file:
+      - ./.env
+    environment:
+      NODE_ENV: production
+      REDIS_URL: redis://redis:6379
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:8-alpine
+    container_name: recogno-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    # No `ports:` at all - only api and worker need it, and they reach it over
+    # the compose network.
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  redis-data:

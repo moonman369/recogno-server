@@ -8,6 +8,9 @@ export const healthRoutes: FastifyPluginAsync = async (app) => {
     {
       schema: {
         tags: ['system'],
+        // Infrastructure, not a user resource: load balancers and uptime checks
+        // have no token to present.
+        security: [],
         summary: 'Readiness probe',
         description:
           'Runs `SELECT 1` against Postgres. Returns 503 if the database is unreachable.',

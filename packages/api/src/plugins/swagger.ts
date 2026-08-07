@@ -126,7 +126,7 @@ const swagger: FastifyPluginAsync = async (app) => {
   });
 
   // Typing the bare URL should land somewhere useful rather than on a 404.
-  app.get('/', { schema: { hide: true } }, async (_request, reply) =>
+  app.get('/', { schema: { hide: true, security: [] } }, async (_request, reply) =>
     reply.redirect(DOCS_URL, 302),
   );
 

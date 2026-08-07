@@ -10,4 +10,14 @@ export default defineConfig({
   clean: true,
   // `@recogno/shared` is a source-only workspace package, so bundle it in.
   noExternal: ['@recogno/shared'],
+  // Bundling `@recogno/shared` pulls in CJS deps (pino, ioredis, bullmq, ...)
+  // that call plain `require(...)` internally. esbuild's ESM output otherwise
+  // replaces that with a shim that throws "Dynamic require of ... is not
+  // supported" at runtime; a real `require` in scope falls through to that
+  // instead.
+  esbuildOptions(options) {
+    options.banner = {
+      js: "import { createRequire as __createRequire } from 'module'; const require = __createRequire(import.meta.url);",
+    };
+  },
 });

@@ -1,7 +1,16 @@
 /**
- * Real authentication. Every route requires a valid access token except the
- * handful listed in `PUBLIC_ROUTES` — sign-in itself, the health probe and the
- * docs.
+ * Real authentication. Every route requires a valid access token unless it
+ * declares itself public.
+ *
+ * A route is public when its schema says `security: []` — the same annotation
+ * that already tells OpenAPI the endpoint needs no credentials. Reading the
+ * route definition instead of matching the request URL against a hand-kept list
+ * means the two can never disagree, and a new route is protected by default
+ * because omitting the annotation leaves it guarded.
+ *
+ * The previous URL list also could not tell "unknown path" from "protected
+ * path", so `/health/` and `/HEALTH` answered 401 when they should have been a
+ * plain 404.
  *
  * `request.userId` keeps the same name and meaning it had under the old stub, so
  * every deck, drill, submission and review handler is unchanged.
@@ -22,29 +31,34 @@ declare module 'fastify' {
 }
 
 /**
- * Exactly the routes reachable without a token. Listed individually rather than
- * by `/auth/` prefix, because `/auth/me` and `/auth/logout-all` must stay
- * protected — a prefix rule would silently expose them, and would expose any
- * future `/auth/*` route too.
+ * Swagger UI registers its own routes and static assets, which we do not define
+ * and therefore cannot annotate. This stays a prefix rule.
  */
-const PUBLIC_ROUTES = new Set([
-  '/',
-  '/health',
-  '/auth/providers',
-  '/auth/register',
-  '/auth/login',
-  '/auth/refresh',
-  '/auth/logout',
-  '/auth/google',
-  '/auth/google/callback',
-]);
-
-/** The docs bundle is many static assets, so this one stays a prefix. */
 const PUBLIC_PREFIXES = ['/docs'] as const;
 
-export function isPublicRoute(pathname: string): boolean {
-  if (PUBLIC_ROUTES.has(pathname)) return true;
+/** Put this on a route's schema to make it reachable without a token. */
+export const PUBLIC_ROUTE = { security: [] as never[] };
+
+export function isPublicPrefix(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}
+
+/**
+ * True when the matched route opted out of authentication. An empty `security`
+ * array is OpenAPI's own way of saying "no credentials required here".
+ */
+function routeIsPublic(request: FastifyRequest): boolean {
+  const schema = request.routeOptions?.schema as { security?: unknown } | undefined;
+  return Array.isArray(schema?.security) && schema.security.length === 0;
+}
+
+/**
+ * No route matched, so this is a 404. Letting it through means Fastify answers
+ * "not found" rather than the auth layer answering "unauthenticated" about a
+ * path that does not exist.
+ */
+function routeIsUnmatched(request: FastifyRequest): boolean {
+  return !request.routeOptions?.url;
 }
 
 function bearerToken(request: FastifyRequest): string | undefined {
@@ -62,7 +76,10 @@ const auth: FastifyPluginAsync = async (app) => {
 
   app.addHook('onRequest', async (request, reply) => {
     const [pathname = request.url] = request.url.split('?');
-    if (isPublicRoute(pathname)) return;
+
+    if (routeIsUnmatched(request) || routeIsPublic(request) || isPublicPrefix(pathname)) {
+      return;
+    }
 
     const token = bearerToken(request);
     if (!token) {

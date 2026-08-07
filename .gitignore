@@ -2,6 +2,7 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+docs/
 
 .env
 .env.*
@@ -11,3 +12,4 @@ coverage/
 *.log
 
 prompts/
+.claude/

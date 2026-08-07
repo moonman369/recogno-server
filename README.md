@@ -139,10 +139,15 @@ is visible rather than silent.
 
 ### Identity
 
-Every route requires a bearer token except `/health`, `/docs/*` and the sign-in
-routes themselves. The allowlist lives in `isPublicRoute` in
-`packages/api/src/plugins/auth.ts`; anything not named there is protected, so a
-new route is never accidentally public.
+Every route requires a bearer token unless it declares `security: []` on its
+schema — the same annotation that tells OpenAPI the endpoint needs no
+credentials, so the published spec and the runtime guard can never disagree.
+Omitting it leaves a route protected, so a new endpoint is never accidentally
+public.
+
+Currently public: `GET /health`, the sign-in routes, and `/docs/*` (a prefix
+rule, since Swagger UI registers those routes itself). Unknown paths answer
+`404`, not `401`.
 
 | Route                  | What it does                                        |
 | ---------------------- | --------------------------------------------------- |

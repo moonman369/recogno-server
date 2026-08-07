@@ -24,6 +24,7 @@
           "system"
         ],
         "description": "Runs `SELECT 1` against Postgres. Returns 503 if the database is unreachable.",
+        "security": [],
         "responses": {
           "200": {
             "description": "Default Response",

@@ -1,85 +1,76 @@
 /**
- * Route protection. The database is mocked, so this exercises the guard itself
- * rather than the sign-in flow — that lives in the live end-to-end check.
+ * Route protection. Exercises the guard through real requests rather than a URL
+ * helper, because publicness now comes from the matched route's schema.
  */
 
 import Fastify from 'fastify';
 import { describe, expect, it } from 'vitest';
-import auth, { isPublicRoute } from '../src/plugins/auth.js';
-
-describe('isPublicRoute', () => {
-  it('allows sign-in and the health probe through', () => {
-    for (const route of [
-      '/',
-      '/health',
-      '/auth/providers',
-      '/auth/register',
-      '/auth/login',
-      '/auth/refresh',
-      '/auth/logout',
-      '/auth/google',
-      '/auth/google/callback',
-    ]) {
-      expect(isPublicRoute(route), `${route} should be public`).toBe(true);
-    }
-  });
-
-  it('serves the docs and their assets without a token', () => {
-    expect(isPublicRoute('/docs')).toBe(true);
-    expect(isPublicRoute('/docs/')).toBe(true);
-    expect(isPublicRoute('/docs/static/swagger-ui.css')).toBe(true);
-    expect(isPublicRoute('/docs/json')).toBe(true);
-  });
-
-  it('protects the authenticated half of /auth', () => {
-    // A `/auth/` prefix rule would have exposed these.
-    expect(isPublicRoute('/auth/me')).toBe(false);
-    expect(isPublicRoute('/auth/logout-all')).toBe(false);
-  });
-
-  it('protects every feature route', () => {
-    for (const route of [
-      '/decks',
-      '/decks/1',
-      '/decks/1/problems',
-      '/drill/next',
-      '/drill/submit',
-      '/drill/due-count',
-      '/review/queue',
-      '/review/due-count',
-      '/submissions/abc',
-      '/problems/1/submissions',
-    ]) {
-      expect(isPublicRoute(route), `${route} should be protected`).toBe(false);
-    }
-  });
-
-  it('does not treat a lookalike prefix as public', () => {
-    expect(isPublicRoute('/docsomething')).toBe(false);
-    expect(isPublicRoute('/healthz')).toBe(false);
-    expect(isPublicRoute('/authorise')).toBe(false);
-  });
-});
+import auth, { isPublicPrefix } from '../src/plugins/auth.js';
 
 async function buildGuarded() {
-  const app = Fastify();
+  const app = Fastify({ routerOptions: { ignoreTrailingSlash: true } });
   await app.register(await import('@fastify/jwt').then((m) => m.default), {
     secret: 'test-secret-that-is-at-least-32-characters',
   });
   await app.register(auth);
+
+  // Public: declares `security: []`, exactly as /health and the sign-in routes do.
+  app.get('/health', { schema: { security: [] } }, async () => ({ ok: true }));
+  app.post('/auth/login', { schema: { security: [] } }, async () => ({ token: 'x' }));
+
+  // Protected: no annotation, so the default applies.
   app.get('/decks', async (request) => ({ userId: request.userId }));
-  app.get('/health', async () => ({ ok: true }));
+  app.get('/auth/me', async (request) => ({ userId: request.userId }));
+
   await app.ready();
   return app;
 }
 
-describe('the guard', () => {
-  it('rejects a protected route with no Authorization header', async () => {
+const get = (app: Awaited<ReturnType<typeof buildGuarded>>, url: string) =>
+  app.inject({ method: 'GET', url });
+
+describe('public routes', () => {
+  it('lets a route through when its schema says security: []', async () => {
     const app = await buildGuarded();
-    const response = await app.inject({ method: 'GET', url: '/decks' });
+    expect((await get(app, '/health')).statusCode).toBe(200);
+    await app.close();
+  });
+
+  it('tolerates a trailing slash', async () => {
+    // This is what actually broke: `/health/` used to answer 401.
+    const app = await buildGuarded();
+    expect((await get(app, '/health/')).statusCode).toBe(200);
+    await app.close();
+  });
+
+  it('ignores the query string when deciding', async () => {
+    const app = await buildGuarded();
+    expect((await get(app, '/health?probe=1')).statusCode).toBe(200);
+    await app.close();
+  });
+
+  it('allows a public POST as well as a public GET', async () => {
+    const app = await buildGuarded();
+    const response = await app.inject({ method: 'POST', url: '/auth/login' });
+    expect(response.statusCode).toBe(200);
+    await app.close();
+  });
+});
+
+describe('protected routes', () => {
+  it('rejects a route that declares no security annotation', async () => {
+    const app = await buildGuarded();
+    const response = await get(app, '/decks');
 
     expect(response.statusCode).toBe(401);
     expect(response.json()).toMatchObject({ code: 'UNAUTHENTICATED' });
+    await app.close();
+  });
+
+  it('protects the authenticated half of /auth', async () => {
+    // A `/auth/` prefix rule would have exposed this.
+    const app = await buildGuarded();
+    expect((await get(app, '/auth/me')).statusCode).toBe(401);
     await app.close();
   });
 
@@ -98,7 +89,7 @@ describe('the guard', () => {
     await app.close();
   });
 
-  it('rejects a token that is not signed by this server', async () => {
+  it('rejects a token this server did not sign', async () => {
     const app = await buildGuarded();
     const response = await app.inject({
       method: 'GET',
@@ -109,12 +100,32 @@ describe('the guard', () => {
     expect(response.statusCode).toBe(401);
     await app.close();
   });
+});
 
-  it('lets a public route through untouched', async () => {
+describe('unknown paths', () => {
+  it('answers 404, not 401, so a typo is not mistaken for a permissions problem', async () => {
     const app = await buildGuarded();
-    const response = await app.inject({ method: 'GET', url: '/health' });
 
-    expect(response.statusCode).toBe(200);
+    for (const url of ['/HEALTH', '/nope', '/decks/../secret', '/health/extra']) {
+      const response = await get(app, url);
+      expect(response.statusCode, `${url} should be 404`).toBe(404);
+    }
+
     await app.close();
+  });
+});
+
+describe('isPublicPrefix', () => {
+  it('covers the docs bundle, which we do not define and cannot annotate', () => {
+    expect(isPublicPrefix('/docs')).toBe(true);
+    expect(isPublicPrefix('/docs/')).toBe(true);
+    expect(isPublicPrefix('/docs/static/swagger-ui.css')).toBe(true);
+    expect(isPublicPrefix('/docs/json')).toBe(true);
+  });
+
+  it('does not match a lookalike prefix', () => {
+    expect(isPublicPrefix('/docsomething')).toBe(false);
+    expect(isPublicPrefix('/')).toBe(false);
+    expect(isPublicPrefix('/decks')).toBe(false);
   });
 });
