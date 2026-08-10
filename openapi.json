@@ -592,7 +592,7 @@
         "tags": [
           "auth"
         ],
-        "description": "Redirects to Google. Returns 501 when the server has no Google credentials — call `GET /auth/providers` first to find out.",
+        "description": "Redirects to Google. When the server has no Google credentials this redirects to OAUTH_SUCCESS_REDIRECT with `?error=not-configured`, or returns 501 when that is unset — call `GET /auth/providers` first to find out.",
         "security": [],
         "responses": {
           "302": {
@@ -627,7 +627,7 @@
         "tags": [
           "auth"
         ],
-        "description": "Exchanges the authorization code for a Recogno session. Redirects to OAUTH_SUCCESS_REDIRECT when set, otherwise returns the session as JSON.",
+        "description": "Exchanges the authorization code for a Recogno session. When OAUTH_SUCCESS_REDIRECT is set both outcomes redirect there — success with `accessToken`/`refreshToken`, failure with `error` (a stable code) and `error_description`. With it unset the session comes back as JSON and failures keep their status codes.",
         "security": [],
         "responses": {
           "200": {
@@ -722,6 +722,26 @@
             "description": "Default Response"
           },
           "400": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          },
+          "409": {
             "description": "Something the caller asked for does not exist or is malformed.",
             "content": {
               "application/json": {
