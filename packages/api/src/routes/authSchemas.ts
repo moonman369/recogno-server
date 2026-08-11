@@ -28,6 +28,28 @@ export const refreshBodySchema = z.object({
   refreshToken: z.string().min(1),
 });
 
+/** Asking for a verification link, and asking for a password-reset link. */
+export const emailOnlyBodySchema = z.object({ email: emailSchema });
+
+export const verifyEmailBodySchema = z.object({
+  token: z.string().min(1).max(512),
+});
+
+export const resetPasswordBodySchema = z.object({
+  token: z.string().min(1).max(512),
+  password: passwordSchema,
+});
+
+/**
+ * Deliberately says nothing about whether the address is registered. Answering
+ * "no such user" here would turn the endpoint into a membership oracle.
+ */
+export const emailDispatchResponseSchema = z.object({
+  message: z.string().meta({
+    description: 'Always the same text, whether or not an account exists for that address.',
+  }),
+});
+
 export const publicUserSchema = z.object({
   id: z.string(),
   email: z.string(),
@@ -59,3 +81,6 @@ export const authProvidersResponseSchema = z.object({
 export type RegisterBody = z.infer<typeof registerBodySchema>;
 export type LoginBody = z.infer<typeof loginBodySchema>;
 export type RefreshBody = z.infer<typeof refreshBodySchema>;
+export type EmailOnlyBody = z.infer<typeof emailOnlyBodySchema>;
+export type VerifyEmailBody = z.infer<typeof verifyEmailBodySchema>;
+export type ResetPasswordBody = z.infer<typeof resetPasswordBodySchema>;

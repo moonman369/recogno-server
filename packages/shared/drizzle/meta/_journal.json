@@ -36,6 +36,13 @@
       "when": 1785767658856,
       "tag": "0004_sparkling_maximus",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1786427395937,
+      "tag": "0005_aspiring_squadron_supreme",
+      "breakpoints": true
     }
   ]
 }

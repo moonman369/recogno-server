@@ -48,6 +48,20 @@ export const envSchema = z.object({
   GOOGLE_REDIRECT_URI: z.url().optional(),
   /** Where to send the browser after a successful OAuth callback. */
   OAUTH_SUCCESS_REDIRECT: z.url().optional(),
+
+  /**
+   * Where the frontend lives. Verification and password-reset emails link to
+   * pages there, not to this API — the token is consumed by a POST the page
+   * makes, so the link must open the app.
+   */
+  APP_BASE_URL: z.url().default('http://localhost:5173'),
+  /**
+   * Transactional email, optional like Google. Without a key the API still
+   * issues tokens and reports success; outside production it logs the link so
+   * local development needs no mail provider at all.
+   */
+  RESEND_API_KEY: z.string().min(1).optional(),
+  MAIL_FROM: z.string().min(1).default('Recogno <onboarding@resend.dev>'),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -76,6 +90,9 @@ export const env: Env = parseEnv();
 
 /** True only when both halves of the Google credential are configured. */
 export const isGoogleOAuthConfigured = Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
+
+/** True when outbound email can actually be delivered rather than only logged. */
+export const isEmailConfigured = Boolean(env.RESEND_API_KEY);
 
 export const isProduction = env.NODE_ENV === 'production';
 export const isTest = env.NODE_ENV === 'test';

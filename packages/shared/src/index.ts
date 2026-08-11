@@ -41,6 +41,7 @@ export {
   type Env,
   env,
   envSchema,
+  isEmailConfigured,
   isGoogleOAuthConfigured,
   isProduction,
   isTest,

@@ -124,6 +124,41 @@ export const refreshTokens = pgTable(
   ],
 );
 
+/**
+ * One-shot tokens emailed to a user to prove they control the address. Both
+ * purposes share a table because they share every property that matters:
+ * single use, short lived, and worthless once consumed.
+ */
+export const authTokenPurposeEnum = pgEnum('auth_token_purpose', [
+  'email-verification',
+  'password-reset',
+]);
+
+/**
+ * Stored as a SHA-256 digest for the same reason as `refresh_tokens`: a leak of
+ * this table must not hand anyone a working password reset. `consumedAt` makes
+ * redemption single-use without deleting the row, so a second click can be told
+ * "already used" rather than "invalid".
+ */
+export const authTokens = pgTable(
+  'auth_tokens',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    purpose: authTokenPurposeEnum('purpose').notNull(),
+    tokenHash: text('token_hash').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    consumedAt: timestamp('consumed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('auth_tokens_hash_idx').on(table.tokenHash),
+    index('auth_tokens_user_purpose_idx').on(table.userId, table.purpose),
+  ],
+);
+
 export const patterns = pgTable(
   'patterns',
   {

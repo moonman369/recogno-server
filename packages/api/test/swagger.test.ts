@@ -78,6 +78,7 @@ describe('swagger', () => {
 
     expect(spec.openapi).toBe('3.1.0');
     expect(Object.keys(at(spec, 'paths')).sort()).toEqual([
+      '/auth/forgot-password',
       '/auth/google',
       '/auth/google/callback',
       '/auth/login',
@@ -87,6 +88,9 @@ describe('swagger', () => {
       '/auth/providers',
       '/auth/refresh',
       '/auth/register',
+      '/auth/reset-password',
+      '/auth/verify-email/confirm',
+      '/auth/verify-email/request',
       '/decks',
       '/decks/{deckId}',
       '/decks/{deckId}/problems',
