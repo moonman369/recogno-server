@@ -1,5 +1,6 @@
 /**
- * Sign-up, sign-in, session refresh and Google OAuth.
+ * Sign-up, sign-in, session refresh, email verification, password reset and
+ * Google OAuth.
  *
  * These are the only routes reachable without a token (see `plugins/auth.ts`).
  */
@@ -15,6 +16,7 @@ import {
   rotateSession,
   toPublicUser,
 } from '../services/tokens.js';
+import { accountRecoveryRoutes, sendVerificationEmail } from './accountRecovery.js';
 import {
   authProvidersResponseSchema,
   type LoginBody,
@@ -80,6 +82,13 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       if (!user) return reply.code(500).send({ error: 'Failed to create the account' });
 
       log.info({ userId: user.id }, 'Registered a new account');
+
+      // Awaited, not fired and forgotten: an unhandled rejection after the
+      // response would take the process down. `sendVerificationEmail` swallows
+      // its own failures, so a dead mail provider costs a few hundred
+      // milliseconds and a log line, never the registration.
+      await sendVerificationEmail(user);
+
       const session = await issueSession(app, user);
       return reply.code(201).send({ user: toPublicUser(user), ...session });
     },
@@ -156,6 +165,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
+  await app.register(accountRecoveryRoutes);
   await app.register(googleRoutes);
 };
 
