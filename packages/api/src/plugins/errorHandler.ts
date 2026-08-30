@@ -15,7 +15,8 @@ const log = createLogger('http');
 
 /**
  * Postgres/driver conditions that mean "try again shortly" rather than "your
- * request was wrong" — most often a Neon compute that had suspended while idle.
+ * request was wrong" — a database still coming up, a restart, or a connection
+ * dropped underneath us.
  */
 const TRANSIENT_DB_CODES = new Set([
   'CONNECT_TIMEOUT',
@@ -96,8 +97,8 @@ const errorHandler: FastifyPluginAsync = async (app) => {
     if (transient) {
       return reply.code(503).send({
         error:
-          'The database is temporarily unavailable. If it is hosted on Neon it may have been ' +
-          'suspended while idle; retry in a few seconds.',
+          'The database is temporarily unavailable — it may be restarting or not yet ' +
+          'accepting connections. Retry in a few seconds.',
         code,
       });
     }

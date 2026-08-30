@@ -8,6 +8,15 @@
 # The deploy job only runs `docker compose pull && up -d` against whatever is
 # already sitting there - see docs/DEPLOYMENT_SOP.md step 1.
 #
+# Postgres is NOT part of this stack. It runs as `recogno-postgres` in its own
+# compose project, and api/worker reach it at `postgres:5432` over the shared
+# `recogno-net` network. That network must exist before this file is brought up:
+#
+#   docker network create recogno-net
+#
+# Nothing here publishes a database port, so Postgres stays unreachable from
+# outside the VM and DATABASE_URL needs no sslmode.
+#
 # To roll back: change `:latest` below to `:sha-<full-commit-sha>` (every build
 # publishes that tag too) and run `docker compose up -d`.
 
@@ -28,6 +37,11 @@ services:
       # so the app is never exposed publicly and no VM firewall rule is needed
       # for it. Only 80/443 are ever open.
       - "127.0.0.1:3000:3000"
+    # Naming a network opts the service out of the implicit default, so
+    # `default` has to be listed too or redis stops resolving.
+    networks:
+      - default
+      - recogno-net
     restart: unless-stopped
     depends_on:
       redis:
@@ -47,6 +61,9 @@ services:
     environment:
       NODE_ENV: production
       REDIS_URL: redis://redis:6379
+    networks:
+      - default
+      - recogno-net
     restart: unless-stopped
     depends_on:
       redis:
@@ -62,7 +79,8 @@ services:
     container_name: recogno-redis
     command: ["redis-server", "--appendonly", "yes"]
     # No `ports:` at all - only api and worker need it, and they reach it over
-    # the compose network.
+    # the compose network. Deliberately not on recogno-net: the database side
+    # has no reason to see it.
     restart: unless-stopped
     volumes:
       - redis-data:/data
@@ -76,6 +94,15 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+networks:
+  # Created by hand (`docker network create recogno-net`) and shared with the
+  # Postgres project, so neither compose file owns it. `external` also keeps
+  # compose from prefixing the name with the project - a network declared
+  # normally here would be created as `recogno_recogno-net` and the database
+  # project would never find it.
+  recogno-net:
+    external: true
 
 volumes:
   redis-data:
