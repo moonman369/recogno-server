@@ -242,8 +242,11 @@ problem that lacks one. It is a one-off operator script, not a queue job —
 
 ## Database
 
-Postgres 18 on [Neon](https://neon.tech). The pooled connection means prepared
-statements are disabled (`prepare: false` in `packages/shared/src/db/index.ts`).
+Self-hosted Postgres 18, reached over a plain TCP connection with postgres.js
+(`packages/shared/src/db/index.ts`). `DATABASE_URL` decides both the host and
+whether the connection uses TLS — `?sslmode=require` when the database is on
+another machine, nothing when it is on the same docker network or on loopback.
+See `.env.example` for the three forms.
 
 Schema lives in `packages/shared/src/db/schema.ts` — currently empty, no feature
 tables yet.
@@ -256,8 +259,17 @@ Scaffolded, not production-hardened.
 docker compose -f docker/compose.yml up --build
 ```
 
-Brings up `api`, `worker`, and `redis`. Postgres is commented out in
-`docker/compose.yml` since the database is hosted on Neon.
+Brings up `api`, `worker`, and `redis`. Postgres is deliberately not in this
+stack: it runs as `recogno-postgres` in its own compose project on the external
+`recogno-net` network, which `api` and `worker` also join so they can reach it
+at `postgres:5432`. Create the network (or start that project) first:
+
+```bash
+docker network create recogno-net
+```
+
+`docker/compose.yml` keeps a commented-out `postgres:18-alpine` service for
+working fully offline.
 
 ## CI
 

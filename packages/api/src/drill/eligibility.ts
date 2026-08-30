@@ -7,7 +7,7 @@
  * the same `srs_cards`, so the due queue spans them.
  */
 
-import { problems, tells } from '@recogno/shared';
+import { deckProblems, problems, tells } from '@recogno/shared';
 import { and, isNotNull, type SQL, sql } from 'drizzle-orm';
 
 /**
@@ -33,4 +33,18 @@ export type ReviewMode = 'drill' | 'note';
 /** Selects the mode as a column, so a mixed queue can label each row. */
 export function reviewModeColumn(): SQL<ReviewMode> {
   return sql<ReviewMode>`case when ${isDrillEligible()} then 'drill' else 'note' end`;
+}
+
+/**
+ * Restricts to problems that are members of one deck.
+ *
+ * An `exists` rather than a join: a problem can belong to several decks, and a
+ * join would return it once per deck, quietly inflating due counts and handing
+ * the drill the same problem twice.
+ */
+export function inDeck(deckId: number): SQL {
+  return sql`exists (
+    select 1 from ${deckProblems}
+    where ${deckProblems.deckId} = ${deckId} and ${deckProblems.problemId} = ${problems.id}
+  )`;
 }

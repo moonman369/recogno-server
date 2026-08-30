@@ -12,7 +12,7 @@ import { CANONICAL_PATTERNS } from '../domain/patterns.js';
 import { createLogger } from '../logger.js';
 import { PROBLEM_FIXTURES } from './fixtures.js';
 import { closeDatabase, db } from './index.js';
-import { decks, patterns, problemPatterns, problems, tells } from './schema.js';
+import { deckProblems, decks, patterns, problemPatterns, problems, tells } from './schema.js';
 
 const log = createLogger('seed');
 
@@ -143,9 +143,35 @@ async function seed(): Promise<void> {
           difficulty: excluded('difficulty'),
         },
       })
-      .returning({ id: problems.id, slug: problems.slug });
+      .returning({ id: problems.id, slug: problems.slug, deckId: problems.deckId });
 
     const problemIdBySlug = new Map(insertedProblems.map((p) => [p.slug, p.id]));
+
+    /**
+     * Deck membership mirrors the home deck for curated problems. The relocation
+     * above can move one between system decks, so the stale membership row has to
+     * go first — otherwise a retuned category leaves the problem listed under both.
+     *
+     * Rows carrying `importedFromDeckId` belong to a user who imported this
+     * problem into their own deck, and are none of the seeder's business.
+     */
+    await tx.delete(deckProblems).where(
+      and(
+        inArray(
+          deckProblems.problemId,
+          insertedProblems.map((p) => p.id),
+        ),
+        isNull(deckProblems.importedFromDeckId),
+        sql`${deckProblems.deckId} <> (
+          select ${problems.deckId} from ${problems} where ${problems.id} = ${deckProblems.problemId}
+        )`,
+      ),
+    );
+
+    await tx
+      .insert(deckProblems)
+      .values(insertedProblems.map((p) => ({ deckId: p.deckId, problemId: p.id })))
+      .onConflictDoNothing();
 
     const tellRows = PROBLEM_FIXTURES.map((fixture) => {
       const problemId = problemIdBySlug.get(fixture.slug);

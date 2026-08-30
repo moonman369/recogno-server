@@ -39,6 +39,33 @@ export const problemSummarySchema = z.object({
     description: 'Which review flow this problem uses. Decided by whether it has a pattern + tell.',
   }),
   dueAt: z.iso.datetime().nullable(),
+  imported: z.boolean().meta({
+    description:
+      'True when this problem was imported from another deck rather than created here. ' +
+      'Only imported problems can be removed from a deck.',
+  }),
+});
+
+/** Cap on one import call — enough to take a whole curated deck, short of a denial of service. */
+export const MAX_IMPORT_PROBLEMS = 500;
+
+export const importProblemsBodySchema = z.object({
+  problemIds: z
+    .array(z.int().positive())
+    .min(1, 'Select at least one problem')
+    .max(MAX_IMPORT_PROBLEMS)
+    .meta({
+      description:
+        'Problem ids from any deck the caller can see — a system deck, or one of their own.',
+    }),
+});
+
+export const importProblemsResponseSchema = z.object({
+  imported: z.int().meta({ description: 'Problems newly added to the deck.' }),
+  skipped: z.int().meta({
+    description: 'Ids that were already in the deck. Re-importing is a no-op, not an error.',
+  }),
+  problemCount: z.int().meta({ description: 'Total problems in the deck after the import.' }),
 });
 
 export const deckDetailResponseSchema = deckSchema.extend({
@@ -173,6 +200,19 @@ export const reviewQueueResponseSchema = z.object({
   items: z.array(reviewQueueItemSchema),
 });
 
+/**
+ * Shared by the deck-scoped variants of the drill and review endpoints. Coerced
+ * because it arrives as a query string.
+ */
+export const deckScopeQuerySchema = z.object({
+  deckId: z.coerce
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .meta({ description: 'Restrict to one deck. Omit for everything the caller can see.' }),
+});
+
 export const reviewDueCountResponseSchema = z.object({
   dueCount: z.int(),
   drillDueCount: z.int().meta({ description: 'Due cards eligible for the blind drill.' }),
@@ -182,5 +222,7 @@ export const reviewDueCountResponseSchema = z.object({
 
 export type CreateDeckBody = z.infer<typeof createDeckBodySchema>;
 export type AddProblemBody = z.infer<typeof addProblemBodySchema>;
+export type ImportProblemsBody = z.infer<typeof importProblemsBodySchema>;
+export type DeckScopeQuery = z.infer<typeof deckScopeQuerySchema>;
 export type CreateSubmissionBody = z.infer<typeof createSubmissionBodySchema>;
 export type CommitBody = z.infer<typeof commitBodySchema>;

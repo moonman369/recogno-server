@@ -237,6 +237,44 @@ export const problems = pgTable(
 );
 
 /**
+ * Which decks a problem appears in.
+ *
+ * `problems.deck_id` remains the problem's *home* deck — where it was created and
+ * where its slug must stay unique. This table is *membership*, which is a
+ * many-to-many relation: importing a curated problem into a personal deck adds a
+ * row here rather than copying the problem.
+ *
+ * Copying would have been simpler and wrong. `srs_cards` is keyed on
+ * (user, problem), so a duplicated row means a second, independent schedule for
+ * what the learner experiences as one problem — they would drill it twice and
+ * each copy would drift. One problem, one card, many decks.
+ */
+export const deckProblems = pgTable(
+  'deck_problems',
+  {
+    deckId: integer('deck_id')
+      .notNull()
+      .references(() => decks.id, { onDelete: 'cascade' }),
+    problemId: integer('problem_id')
+      .notNull()
+      .references(() => problems.id, { onDelete: 'cascade' }),
+    /**
+     * Where an imported problem came from. Null for a problem's home deck, which
+     * is what distinguishes "I added this here" from "I borrowed it" — and what
+     * lets an import be undone without deleting the problem itself.
+     */
+    importedFromDeckId: integer('imported_from_deck_id').references(() => decks.id, {
+      onDelete: 'set null',
+    }),
+    addedAt: timestamp('added_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.deckId, table.problemId] }),
+    index('deck_problems_problem_idx').on(table.problemId),
+  ],
+);
+
+/**
  * Every pattern a problem legitimately accepts, including the primary one held
  * on `problems.pattern_id`.
  *

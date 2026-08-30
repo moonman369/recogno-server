@@ -1,6 +1,12 @@
 # Scaffolded local stack. Run from the repo root:
 #   docker compose -f docker/compose.yml up --build
-# Reads secrets from the repo-root .env (DATABASE_URL points at Neon).
+# Reads secrets from the repo-root .env.
+#
+# Postgres is not part of this stack. It runs as `recogno-postgres` in its own
+# compose project on the external `recogno-net` network, so api and worker join
+# that network and reach it at `postgres:5432` — the same shape as the VM. Bring
+# it up first, or `docker network create recogno-net` if you only want the
+# network. To run without it, see the commented-out service at the bottom.
 
 name: recogno
 
@@ -16,6 +22,11 @@ services:
       REDIS_URL: redis://redis:6379
     ports:
       - "3000:3000"
+    # Listing networks opts out of the implicit default, so `default` has to be
+    # named too or redis becomes unreachable.
+    networks:
+      - default
+      - recogno-net
     depends_on:
       redis:
         condition: service_healthy
@@ -28,6 +39,9 @@ services:
     environment:
       NODE_ENV: production
       REDIS_URL: redis://redis:6379
+    networks:
+      - default
+      - recogno-net
     depends_on:
       redis:
         condition: service_healthy
@@ -45,9 +59,10 @@ services:
       timeout: 3s
       retries: 10
 
-  # The database lives on Neon, so no local Postgres by default.
-  # Uncomment to run fully offline, and point DATABASE_URL at it:
-  #   DATABASE_URL=postgres://recogno:recogno@postgres:5432/recogno
+  # Fully-offline alternative: uncomment this, drop `recogno-net` from the api
+  # and worker `networks:` lists and from the `networks:` block below, and point
+  # DATABASE_URL at it:
+  #   DATABASE_URL=postgresql://recogno:recogno@postgres:5432/recogno
   #
   # postgres:
   #   image: postgres:18-alpine
@@ -64,6 +79,11 @@ services:
   #     interval: 5s
   #     timeout: 3s
   #     retries: 10
+
+networks:
+  # Owned by the Postgres compose project, not this one — hence `external`.
+  recogno-net:
+    external: true
 
 volumes:
   redis-data:

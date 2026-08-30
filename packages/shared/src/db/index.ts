@@ -8,17 +8,30 @@ import * as schema from './schema.js';
 const log = createLogger('db');
 
 /**
- * Neon serves connections through a pooler, which cannot hold server-side
- * prepared statements — hence `prepare: false`.
+ * A direct TCP connection to Postgres, so the driver defaults hold: real
+ * persistent connections and server-side prepared statements. Only a
+ * transaction-pooling proxy in front (PgBouncer and friends) would force
+ * `prepare: false` back on.
+ *
+ * TLS is decided entirely by the URL. postgres.js turns `?sslmode=require`
+ * into a handshake with `rejectUnauthorized: false` — encrypted but with the
+ * certificate unchecked, which is what a self-signed cert on the database host
+ * needs — while a URL with no `sslmode` connects in the clear, which is what
+ * same-docker-network and loopback deployments want. Deliberately no `ssl`
+ * option here: any value passed in code outranks the URL, `undefined`
+ * included, so setting it would silently disarm `sslmode=require`.
  */
 export const client = postgres(env.DATABASE_URL, {
   max: isProduction ? 10 : 5,
-  // Neon suspends an idle compute and takes several seconds to wake. Holding
-  // connections a little longer avoids paying that cost between quick requests,
-  // and 30s of patience covers a cold start that 10s would have aborted.
-  idle_timeout: 60,
-  connect_timeout: 30,
-  prepare: false,
+  // Sized for a database on the same host or LAN, which is always warm.
+  // Reconnecting costs about a millisecond, while every idle connection holds
+  // a server-side backend process against `max_connections` (100 by default,
+  // shared with the worker, migrations and any psql session). 30s keeps a
+  // connection across a burst of requests without hoarding the pool overnight.
+  idle_timeout: 30,
+  // Such a database either accepts at once or is down. 10s absorbs a container
+  // restart while still surfacing a wrong host as an error rather than a hang.
+  connect_timeout: 10,
 });
 
 export const db = drizzle(client, { schema });

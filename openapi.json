@@ -1180,7 +1180,20 @@
         "tags": [
           "drill"
         ],
-        "description": "Returns the statement and constraints only. The ground-truth pattern and the tell are withheld until the guess is submitted.\n\nPrefers an SRS card that is due, then a problem never seen, then the soonest-due card.",
+        "description": "Returns the statement and constraints only. The ground-truth pattern and the tell are withheld until the guess is submitted.\n\nPrefers an SRS card that is due, then a problem never seen, then the soonest-due card.\n\nPass `deckId` to drill one deck only. The same three-step preference applies inside it.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "in": "query",
+            "name": "deckId",
+            "required": false,
+            "description": "Restrict to one deck. Omit for everything the caller can see."
+          }
+        ],
         "responses": {
           "200": {
             "description": "Default Response",
@@ -1777,7 +1790,20 @@
         "tags": [
           "drill"
         ],
-        "description": "Drill-eligible cards whose due date has passed. For the badge that spans both flows, use `GET /review/due-count`.",
+        "description": "Drill-eligible cards whose due date has passed. For the badge that spans both flows, use `GET /review/due-count`.\n\nPass `deckId` to count within one deck — the badge for a deck-scoped drill session.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "in": "query",
+            "name": "deckId",
+            "required": false,
+            "description": "Restrict to one deck. Omit for everything the caller can see."
+          }
+        ],
         "responses": {
           "200": {
             "description": "Default Response",
@@ -1811,6 +1837,26 @@
                     "nextDueAt"
                   ],
                   "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
                 }
               }
             }
@@ -2119,6 +2165,10 @@
                                 "type": "null"
                               }
                             ]
+                          },
+                          "imported": {
+                            "type": "boolean",
+                            "description": "True when this problem was imported from another deck rather than created here. Only imported problems can be removed from a deck."
                           }
                         },
                         "required": [
@@ -2129,7 +2179,8 @@
                           "source",
                           "sourceUrl",
                           "mode",
-                          "dueAt"
+                          "dueAt",
+                          "imported"
                         ],
                         "additionalProperties": false
                       }
@@ -2526,6 +2577,221 @@
             }
           },
           "503": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/decks/{deckId}/import": {
+      "post": {
+        "summary": "Import problems from another deck",
+        "tags": [
+          "decks"
+        ],
+        "description": "Adds existing problems to this deck by reference â€” nothing is copied. The problem keeps one identity and therefore one SRS card, so importing something already scheduled carries its progress across instead of restarting it.\n\nSource problems may come from any deck the caller can see: a system deck, or one of their own. Ids already in the deck are counted as `skipped` rather than failing the call.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "problemIds": {
+                    "minItems": 1,
+                    "maxItems": 500,
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "description": "Problem ids from any deck the caller can see — a system deck, or one of their own."
+                  }
+                },
+                "required": [
+                  "problemIds"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "deckId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "imported": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991,
+                      "description": "Problems newly added to the deck."
+                    },
+                    "skipped": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991,
+                      "description": "Ids that were already in the deck. Re-importing is a no-op, not an error."
+                    },
+                    "problemCount": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991,
+                      "description": "Total problems in the deck after the import."
+                    }
+                  },
+                  "required": [
+                    "imported",
+                    "skipped",
+                    "problemCount"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/decks/{deckId}/problems/{problemId}": {
+      "delete": {
+        "summary": "Remove an imported problem from a deck",
+        "tags": [
+          "decks"
+        ],
+        "description": "Drops the membership row only â€” the problem, its submissions and its SRS card are untouched, and it stays in the deck that owns it.\n\nA problem created in this deck cannot be removed this way: there would be nowhere for it to live afterwards.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "deckId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "problemId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Default Response"
+          },
+          "403": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          },
+          "409": {
             "description": "Something the caller asked for does not exist or is malformed.",
             "content": {
               "application/json": {
@@ -3633,7 +3899,20 @@
         "tags": [
           "review"
         ],
-        "description": "The unified badge count. Broken down by flow so a client can show \"3 drills, 2 writeups\".",
+        "description": "The unified badge count. Broken down by flow so a client can show \"3 drills, 2 writeups\".\n\nPass `deckId` to count within one deck.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "in": "query",
+            "name": "deckId",
+            "required": false,
+            "description": "Restrict to one deck. Omit for everything the caller can see."
+          }
+        ],
         "responses": {
           "200": {
             "description": "Default Response",
@@ -3682,6 +3961,26 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
           }
         }
       }
@@ -3692,7 +3991,20 @@
         "tags": [
           "review"
         ],
-        "description": "Spans both flows. `mode` is `drill` for curated pattern-tagged problems and `note` for everything else.",
+        "description": "Spans both flows. `mode` is `drill` for curated pattern-tagged problems and `note` for everything else.\n\nPass `deckId` to review one deck only. `deckId`/`deckName` on each item stay the problem's home deck, which is where it was created — not necessarily the deck filtered on.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "in": "query",
+            "name": "deckId",
+            "required": false,
+            "description": "Restrict to one deck. Omit for everything the caller can see."
+          }
+        ],
         "responses": {
           "200": {
             "description": "Default Response",
@@ -3763,6 +4075,26 @@
                     "items"
                   ],
                   "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
                 }
               }
             }

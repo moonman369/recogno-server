@@ -16,12 +16,14 @@ import {
   srsCards,
   tells,
 } from '@recogno/shared';
-import { and, asc, count, eq, inArray, lte, or, sql } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, lte, or, type SQL, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
-import { isDrillEligible } from '../drill/eligibility.js';
+import { inDeck, isDrillEligible } from '../drill/eligibility.js';
 import { gradeAttempt, ratingName, round4, toFsrsRating } from '../drill/scoring.js';
 import { createEmptyCard, scheduler, toFsrsCard, toSrsCardColumns } from '../drill/srs.js';
+import { loadVisibleDeck } from '../services/decks.js';
 import { judgeRationale } from '../services/rationale.js';
+import { type DeckScopeQuery, deckScopeQuerySchema } from './deckSchemas.js';
 import {
   dueCountResponseSchema,
   errorResponseSchema,
@@ -67,7 +69,7 @@ export const drillRoutes: FastifyPluginAsync = async (app) => {
    * Preference order: a card that is actually due, then a problem never seen,
    * then the soonest-due card so the drill is never empty-handed.
    */
-  app.get(
+  app.get<{ Querystring: DeckScopeQuery }>(
     '/drill/next',
     {
       schema: {
@@ -76,19 +78,34 @@ export const drillRoutes: FastifyPluginAsync = async (app) => {
         description:
           'Returns the statement and constraints only. The ground-truth pattern and the tell ' +
           'are withheld until the guess is submitted.\n\n' +
-          'Prefers an SRS card that is due, then a problem never seen, then the soonest-due card.',
+          'Prefers an SRS card that is due, then a problem never seen, then the soonest-due card.\n\n' +
+          'Pass `deckId` to drill one deck only. The same three-step preference applies inside it.',
+        querystring: deckScopeQuerySchema,
         response: { 200: nextResponseSchema, 404: errorResponseSchema },
       },
     },
     async (request, reply) => {
       const { userId } = request;
+      const { deckId } = request.query;
       const now = new Date();
+
+      let deckName: string | undefined;
+
+      if (deckId !== undefined) {
+        const deck = await loadVisibleDeck(deckId, userId);
+        if (!deck) return reply.code(404).send({ error: `Deck ${deckId} not found` });
+        deckName = deck.name;
+      }
+
+      // Undefined rather than a tautology when unscoped, so `and()` drops it and
+      // the unscoped query plan is byte-for-byte what it was before.
+      const scope: SQL | undefined = deckId === undefined ? undefined : inDeck(deckId);
 
       const [due] = await db
         .select({ ...blindProblemColumns, dueAt: srsCards.dueAt })
         .from(srsCards)
         .innerJoin(problems, eq(problems.id, srsCards.problemId))
-        .where(and(eq(srsCards.userId, userId), lte(srsCards.dueAt, now), isDrillEligible()))
+        .where(and(eq(srsCards.userId, userId), lte(srsCards.dueAt, now), isDrillEligible(), scope))
         .orderBy(asc(srsCards.dueAt))
         .limit(1);
 
@@ -101,6 +118,7 @@ export const drillRoutes: FastifyPluginAsync = async (app) => {
           .where(
             and(
               isDrillEligible(),
+              scope,
               sql`not exists (
             select 1 from ${srsCards}
             where ${srsCards.userId} = ${userId} and ${srsCards.problemId} = ${problems.id}
@@ -119,7 +137,7 @@ export const drillRoutes: FastifyPluginAsync = async (app) => {
           .select({ ...blindProblemColumns, dueAt: srsCards.dueAt })
           .from(srsCards)
           .innerJoin(problems, eq(problems.id, srsCards.problemId))
-          .where(and(eq(srsCards.userId, userId), isDrillEligible()))
+          .where(and(eq(srsCards.userId, userId), isDrillEligible(), scope))
           .orderBy(asc(srsCards.dueAt))
           .limit(1);
 
@@ -127,7 +145,13 @@ export const drillRoutes: FastifyPluginAsync = async (app) => {
       }
 
       if (!selected) {
-        return reply.code(404).send({ error: 'No drill-eligible problems. Run `pnpm db:seed`.' });
+        return reply.code(404).send({
+          error:
+            deckName === undefined
+              ? 'No drill-eligible problems. Run `pnpm db:seed`.'
+              : `"${deckName}" has no drill-eligible problems. Import some from a curated deck, ` +
+                'or drill without a deck filter.',
+        });
       }
 
       // The full taxonomy is not a leak — it is the multiple-choice menu.
@@ -376,7 +400,7 @@ export const drillRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
-  app.get(
+  app.get<{ Querystring: DeckScopeQuery }>(
     '/drill/due-count',
     {
       schema: {
@@ -384,25 +408,36 @@ export const drillRoutes: FastifyPluginAsync = async (app) => {
         summary: 'Count the drill reps waiting',
         description:
           'Drill-eligible cards whose due date has passed. For the badge that spans both flows, ' +
-          'use `GET /review/due-count`.',
-        response: { 200: dueCountResponseSchema },
+          'use `GET /review/due-count`.\n\n' +
+          'Pass `deckId` to count within one deck — the badge for a deck-scoped drill session.',
+        querystring: deckScopeQuerySchema,
+        response: { 200: dueCountResponseSchema, 404: errorResponseSchema },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { userId } = request;
+      const { deckId } = request.query;
       const now = new Date();
+
+      if (deckId !== undefined && !(await loadVisibleDeck(deckId, userId))) {
+        return reply.code(404).send({ error: `Deck ${deckId} not found` });
+      }
+
+      const scope: SQL | undefined = deckId === undefined ? undefined : inDeck(deckId);
 
       const [due] = await db
         .select({ value: count() })
         .from(srsCards)
         .innerJoin(problems, eq(problems.id, srsCards.problemId))
-        .where(and(eq(srsCards.userId, userId), lte(srsCards.dueAt, now), isDrillEligible()));
+        .where(
+          and(eq(srsCards.userId, userId), lte(srsCards.dueAt, now), isDrillEligible(), scope),
+        );
 
       const [next] = await db
         .select({ dueAt: srsCards.dueAt })
         .from(srsCards)
         .innerJoin(problems, eq(problems.id, srsCards.problemId))
-        .where(and(eq(srsCards.userId, userId), isDrillEligible()))
+        .where(and(eq(srsCards.userId, userId), isDrillEligible(), scope))
         .orderBy(asc(srsCards.dueAt))
         .limit(1);
 
