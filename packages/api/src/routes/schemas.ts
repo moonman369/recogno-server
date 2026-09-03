@@ -38,6 +38,22 @@ export const blindProblemSchema = z.object({
   difficulty: z.enum(['easy', 'medium', 'hard']).nullable(),
 });
 
+/** Shared by every drill route that can be scoped to one deck. */
+export const deckScopedQuerystringSchema = z.object({
+  deckId: z.coerce
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .meta({
+      description:
+        'Scope to one deck (system or the caller’s own). Omit to search across every ' +
+        'deck visible to the caller, as before.',
+    }),
+});
+
+export type DeckScopedQuerystring = z.infer<typeof deckScopedQuerystringSchema>;
+
 export const nextResponseSchema = z.object({
   problem: blindProblemSchema,
   source: z.enum(['due', 'unseen', 'review-ahead']).meta({

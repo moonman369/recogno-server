@@ -1180,7 +1180,20 @@
         "tags": [
           "drill"
         ],
-        "description": "Returns the statement and constraints only. The ground-truth pattern and the tell are withheld until the guess is submitted.\n\nPrefers an SRS card that is due, then a problem never seen, then the soonest-due card.",
+        "description": "Returns the statement and constraints only. The ground-truth pattern and the tell are withheld until the guess is submitted.\n\nPrefers an SRS card that is due, then a problem never seen, then the soonest-due card.\n\nPass `?deckId=` to restrict selection to one deck (system or the caller’s own); omit it to search across every deck visible to the caller, as before.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "in": "query",
+            "name": "deckId",
+            "required": false,
+            "description": "Scope to one deck (system or the caller’s own). Omit to search across every deck visible to the caller, as before."
+          }
+        ],
         "responses": {
           "200": {
             "description": "Default Response",
@@ -1777,7 +1790,20 @@
         "tags": [
           "drill"
         ],
-        "description": "Drill-eligible cards whose due date has passed. For the badge that spans both flows, use `GET /review/due-count`.",
+        "description": "Drill-eligible cards whose due date has passed. For the badge that spans both flows, use `GET /review/due-count`.\n\nPass `?deckId=` to count only that deck, e.g. for a per-deck badge.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "in": "query",
+            "name": "deckId",
+            "required": false,
+            "description": "Scope to one deck (system or the caller’s own). Omit to search across every deck visible to the caller, as before."
+          }
+        ],
         "responses": {
           "200": {
             "description": "Default Response",
@@ -1811,6 +1837,26 @@
                     "nextDueAt"
                   ],
                   "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
                 }
               }
             }
@@ -3769,6 +3815,239 @@
           }
         }
       }
+    },
+    "/settings/scoring": {
+      "get": {
+        "summary": "The thresholds currently grading this user",
+        "tags": [
+          "settings"
+        ],
+        "description": "Defaults to the built-in bands (0.8 / 0.55 / 0.3) until this user sets an override.",
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "thresholds": {
+                      "type": "object",
+                      "properties": {
+                        "easy": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1,
+                          "description": "Composite at or above this earns Easy."
+                        },
+                        "good": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1,
+                          "description": "Composite at or above this earns Good."
+                        },
+                        "hard": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1,
+                          "description": "Composite at or above this earns Hard. Below it, the card lapses (Again)."
+                        }
+                      },
+                      "required": [
+                        "easy",
+                        "good",
+                        "hard"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "isDefault": {
+                      "type": "boolean",
+                      "description": "True when no override is set, so `thresholds` is just the built-in default."
+                    }
+                  },
+                  "required": [
+                    "thresholds",
+                    "isDefault"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Set custom thresholds",
+        "tags": [
+          "settings"
+        ],
+        "description": "Replaces any existing override outright. Must satisfy `hard < good < easy`. Takes effect on the learner's next graded attempt — it does not reschedule cards already due.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "easy": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "Composite at or above this earns Easy."
+                  },
+                  "good": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "Composite at or above this earns Good."
+                  },
+                  "hard": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "Composite at or above this earns Hard. Below it, the card lapses (Again)."
+                  }
+                },
+                "required": [
+                  "easy",
+                  "good",
+                  "hard"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "thresholds": {
+                      "type": "object",
+                      "properties": {
+                        "easy": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1,
+                          "description": "Composite at or above this earns Easy."
+                        },
+                        "good": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1,
+                          "description": "Composite at or above this earns Good."
+                        },
+                        "hard": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1,
+                          "description": "Composite at or above this earns Hard. Below it, the card lapses (Again)."
+                        }
+                      },
+                      "required": [
+                        "easy",
+                        "good",
+                        "hard"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "isDefault": {
+                      "type": "boolean",
+                      "description": "True when no override is set, so `thresholds` is just the built-in default."
+                    }
+                  },
+                  "required": [
+                    "thresholds",
+                    "isDefault"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Something the caller asked for does not exist or is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Something the caller asked for does not exist or is malformed."
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Reset to the default thresholds",
+        "tags": [
+          "settings"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "thresholds": {
+                      "type": "object",
+                      "properties": {
+                        "easy": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1,
+                          "description": "Composite at or above this earns Easy."
+                        },
+                        "good": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1,
+                          "description": "Composite at or above this earns Good."
+                        },
+                        "hard": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1,
+                          "description": "Composite at or above this earns Hard. Below it, the card lapses (Again)."
+                        }
+                      },
+                      "required": [
+                        "easy",
+                        "good",
+                        "hard"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "isDefault": {
+                      "type": "boolean",
+                      "description": "True when no override is set, so `thresholds` is just the built-in default."
+                    }
+                  },
+                  "required": [
+                    "thresholds",
+                    "isDefault"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "security": [
@@ -3792,6 +4071,10 @@
     {
       "name": "decks",
       "description": "Deck containers and adding problems to them"
+    },
+    {
+      "name": "settings",
+      "description": "A user's own composite→FSRS-rating thresholds"
     },
     {
       "name": "submissions",

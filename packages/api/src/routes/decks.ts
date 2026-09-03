@@ -29,7 +29,7 @@ import {
 import { errorResponseSchema } from './schemas.js';
 
 /** Visible to this user: every system deck, plus their own. */
-function visibleToUser(userId: string) {
+export function visibleToUser(userId: string) {
   return or(isNull(decks.ownerUserId), eq(decks.ownerUserId, userId));
 }
 

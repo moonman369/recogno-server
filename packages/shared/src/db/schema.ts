@@ -159,6 +159,28 @@ export const authTokens = pgTable(
   ],
 );
 
+/**
+ * A user's own composite→FSRS-rating cutoffs, overriding the defaults in
+ * `packages/api/src/drill/scoring.ts`. One row per user, created only once
+ * someone actually customises theirs — its absence means "use the defaults",
+ * not "use zero everywhere".
+ *
+ * FSRS's own scheduling math (stability, difficulty, the interval it computes
+ * for a given grade) is untouched by this table. It only changes which of
+ * FSRS's four grades a given composite score earns.
+ */
+export const scoringSettings = pgTable('scoring_settings', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  /** Lower bound of each band. Enforced strictly decreasing at the API layer. */
+  easyThreshold: doublePrecision('easy_threshold').notNull(),
+  goodThreshold: doublePrecision('good_threshold').notNull(),
+  hardThreshold: doublePrecision('hard_threshold').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const patterns = pgTable(
   'patterns',
   {

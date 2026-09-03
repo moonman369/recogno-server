@@ -40,15 +40,24 @@ export const RATIONALE_SCORES: Record<RationaleVerdict, number> = {
   no: 0,
 };
 
+/** Lower bound of each FSRS rating band. A composite below `hard` lapses the card. */
+export interface RatingThresholds {
+  easy: number;
+  good: number;
+  hard: number;
+}
+
 /**
- * Lower bound of each FSRS rating band, walked highest-first. A composite below
- * `hard` is a genuine failure and lapses the card.
+ * Default lower bound of each FSRS rating band, walked highest-first. A user
+ * may override these (see `packages/api/src/services/scoringSettings.ts`);
+ * this constant is also what every existing user without an override gets,
+ * so it must never change on its own.
  */
-export const RATING_THRESHOLDS = {
+export const RATING_THRESHOLDS: RatingThresholds = {
   easy: 0.8,
   good: 0.55,
   hard: 0.3,
-} as const;
+};
 
 export interface ScoreBreakdown {
   correctness: number;
@@ -166,14 +175,20 @@ export function gradeAttempt(input: {
 /**
  * Maps a composite score onto the FSRS grade that drives the next interval.
  * Bands are inclusive at their lower bound.
+ *
+ * `thresholds` defaults to `RATING_THRESHOLDS` so every existing caller keeps
+ * today's exact behaviour; pass a user's overrides to grade by their own bands
+ * instead. FSRS itself still decides the actual interval from this grade —
+ * only which grade a score earns is configurable.
  */
 export function toFsrsRating(
   composite: number,
+  thresholds: RatingThresholds = RATING_THRESHOLDS,
 ): Rating.Again | Rating.Hard | Rating.Good | Rating.Easy {
   const score = clamp01(composite);
-  if (score >= RATING_THRESHOLDS.easy) return Rating.Easy;
-  if (score >= RATING_THRESHOLDS.good) return Rating.Good;
-  if (score >= RATING_THRESHOLDS.hard) return Rating.Hard;
+  if (score >= thresholds.easy) return Rating.Easy;
+  if (score >= thresholds.good) return Rating.Good;
+  if (score >= thresholds.hard) return Rating.Hard;
   return Rating.Again;
 }
 

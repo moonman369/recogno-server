@@ -20,6 +20,7 @@ import { and, eq } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
 import { ratingName, round4, toFsrsRating } from '../drill/scoring.js';
 import { createEmptyCard, scheduler, toFsrsCard, toSrsCardColumns } from '../drill/srs.js';
+import { getEffectiveThresholds } from '../services/scoringSettings.js';
 import {
   createSubmission,
   getSubmission,
@@ -115,8 +116,9 @@ export const submissionRoutes: FastifyPluginAsync = async (app) => {
       const overridden = Boolean(override && override !== row.aiGradation);
 
       // The 5 tiers reach FSRS through the same bands the drill uses, so both
-      // flows schedule off one set of thresholds.
-      const rating = toFsrsRating(GRADATION_SCORES[finalGradation]);
+      // flows schedule off one set of thresholds — this user's override, if any.
+      const thresholds = await getEffectiveThresholds(userId);
+      const rating = toFsrsRating(GRADATION_SCORES[finalGradation], thresholds);
       const now = new Date();
 
       const [existingCard] = await db
