@@ -4,6 +4,7 @@ import {
   compositeScore,
   correctnessScore,
   gradeAttempt,
+  RATING_THRESHOLDS,
   rationaleScore,
   SCORE_WEIGHTS,
   SPEED_FLOOR_SECONDS,
@@ -300,6 +301,27 @@ describe('toFsrsRating', () => {
     for (let score = 0; score <= 1.0001; score += 0.01) {
       expect(toFsrsRating(score)).not.toBe(Rating.Manual);
     }
+  });
+});
+
+describe('toFsrsRating with custom thresholds', () => {
+  it('grades against the supplied bands instead of the defaults', () => {
+    const lenient = { easy: 0.5, good: 0.3, hard: 0.1 };
+    // 0.4 is Hard under the defaults, Good under a lenient user's bands.
+    expect(toFsrsRating(0.4)).toBe(Rating.Hard);
+    expect(toFsrsRating(0.4, lenient)).toBe(Rating.Good);
+  });
+
+  it('falls back to RATING_THRESHOLDS when no thresholds are given', () => {
+    for (const score of [0, 0.2, 0.35, 0.6, 0.85, 1]) {
+      expect(toFsrsRating(score)).toBe(toFsrsRating(score, RATING_THRESHOLDS));
+    }
+  });
+
+  it('a strict user’s bands can turn what used to be Easy into Hard', () => {
+    const strict = { easy: 0.95, good: 0.85, hard: 0.6 };
+    expect(toFsrsRating(0.8)).toBe(Rating.Easy);
+    expect(toFsrsRating(0.8, strict)).toBe(Rating.Hard);
   });
 });
 

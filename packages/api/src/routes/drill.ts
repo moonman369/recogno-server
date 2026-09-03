@@ -4,10 +4,15 @@
  *   GET  /drill/next       pick a problem, revealing statement + constraints only
  *   POST /drill/submit     grade a guess, advance the FSRS card, reveal the tell
  *   GET  /drill/due-count  badge count for "X reps due today"
+ *
+ * `/drill/next` and `/drill/due-count` both accept an optional `?deckId=` to
+ * scope to one deck. `/drill/submit` does not — the `problemId` in its body
+ * already names an unambiguous problem, deck included.
  */
 
 import {
   db,
+  decks,
   drillAttemptPatterns,
   drillAttempts,
   patterns,
@@ -22,7 +27,11 @@ import { isDrillEligible } from '../drill/eligibility.js';
 import { gradeAttempt, ratingName, round4, toFsrsRating } from '../drill/scoring.js';
 import { createEmptyCard, scheduler, toFsrsCard, toSrsCardColumns } from '../drill/srs.js';
 import { judgeRationale } from '../services/rationale.js';
+import { getEffectiveThresholds } from '../services/scoringSettings.js';
+import { visibleToUser } from './decks.js';
 import {
+  type DeckScopedQuerystring,
+  deckScopedQuerystringSchema,
   dueCountResponseSchema,
   errorResponseSchema,
   nextResponseSchema,
@@ -30,6 +39,29 @@ import {
   submitBodySchema,
   submitResponseSchema,
 } from './schemas.js';
+
+/**
+ * Resolves the optional `?deckId=` filter against the same visibility rule
+ * `/decks/*` uses, so a personal deck cannot be probed by id.
+ *
+ * `undefined` deckId means unscoped — today's behaviour, unchanged. A
+ * `deckId` that does not exist or is not visible to this user is reported as
+ * "not found" rather than silently returning nothing, to match `/decks/:deckId`.
+ */
+async function resolveDeckScope(
+  userId: string,
+  deckId: number | undefined,
+): Promise<{ ok: true; deckId: number | undefined } | { ok: false }> {
+  if (deckId === undefined) return { ok: true, deckId: undefined };
+
+  const [deck] = await db
+    .select({ id: decks.id })
+    .from(decks)
+    .where(and(eq(decks.id, deckId), visibleToUser(userId)))
+    .limit(1);
+
+  return deck ? { ok: true, deckId } : { ok: false };
+}
 
 /** Columns safe to show before a guess — deliberately no pattern and no tell. */
 const blindProblemColumns = {
@@ -67,7 +99,7 @@ export const drillRoutes: FastifyPluginAsync = async (app) => {
    * Preference order: a card that is actually due, then a problem never seen,
    * then the soonest-due card so the drill is never empty-handed.
    */
-  app.get(
+  app.get<{ Querystring: DeckScopedQuerystring }>(
     '/drill/next',
     {
       schema: {
@@ -76,19 +108,31 @@ export const drillRoutes: FastifyPluginAsync = async (app) => {
         description:
           'Returns the statement and constraints only. The ground-truth pattern and the tell ' +
           'are withheld until the guess is submitted.\n\n' +
-          'Prefers an SRS card that is due, then a problem never seen, then the soonest-due card.',
+          'Prefers an SRS card that is due, then a problem never seen, then the soonest-due card.\n\n' +
+          'Pass `?deckId=` to restrict selection to one deck (system or the caller’s own); ' +
+          'omit it to search across every deck visible to the caller, as before.',
+        querystring: deckScopedQuerystringSchema,
         response: { 200: nextResponseSchema, 404: errorResponseSchema },
       },
     },
     async (request, reply) => {
       const { userId } = request;
+      const { deckId } = request.query;
       const now = new Date();
+
+      const scope = await resolveDeckScope(userId, deckId);
+      if (!scope.ok) {
+        return reply.code(404).send({ error: `Deck ${deckId} not found` });
+      }
+      const deckFilter = scope.deckId !== undefined ? eq(problems.deckId, scope.deckId) : undefined;
 
       const [due] = await db
         .select({ ...blindProblemColumns, dueAt: srsCards.dueAt })
         .from(srsCards)
         .innerJoin(problems, eq(problems.id, srsCards.problemId))
-        .where(and(eq(srsCards.userId, userId), lte(srsCards.dueAt, now), isDrillEligible()))
+        .where(
+          and(eq(srsCards.userId, userId), lte(srsCards.dueAt, now), isDrillEligible(), deckFilter),
+        )
         .orderBy(asc(srsCards.dueAt))
         .limit(1);
 
@@ -101,6 +145,7 @@ export const drillRoutes: FastifyPluginAsync = async (app) => {
           .where(
             and(
               isDrillEligible(),
+              deckFilter,
               sql`not exists (
             select 1 from ${srsCards}
             where ${srsCards.userId} = ${userId} and ${srsCards.problemId} = ${problems.id}
@@ -119,7 +164,7 @@ export const drillRoutes: FastifyPluginAsync = async (app) => {
           .select({ ...blindProblemColumns, dueAt: srsCards.dueAt })
           .from(srsCards)
           .innerJoin(problems, eq(problems.id, srsCards.problemId))
-          .where(and(eq(srsCards.userId, userId), isDrillEligible()))
+          .where(and(eq(srsCards.userId, userId), isDrillEligible(), deckFilter))
           .orderBy(asc(srsCards.dueAt))
           .limit(1);
 
@@ -127,7 +172,11 @@ export const drillRoutes: FastifyPluginAsync = async (app) => {
       }
 
       if (!selected) {
-        return reply.code(404).send({ error: 'No drill-eligible problems. Run `pnpm db:seed`.' });
+        const error =
+          scope.deckId !== undefined
+            ? `No drill-eligible problems in deck ${scope.deckId}.`
+            : 'No drill-eligible problems. Run `pnpm db:seed`.';
+        return reply.code(404).send({ error });
       }
 
       // The full taxonomy is not a leak — it is the multiple-choice menu.
@@ -287,7 +336,8 @@ export const drillRoutes: FastifyPluginAsync = async (app) => {
         verdict,
       });
 
-      const rating = toFsrsRating(scores.composite);
+      const thresholds = await getEffectiveThresholds(userId);
+      const rating = toFsrsRating(scores.composite, thresholds);
       const now = new Date();
 
       const [existing] = await db
@@ -376,7 +426,7 @@ export const drillRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
-  app.get(
+  app.get<{ Querystring: DeckScopedQuerystring }>(
     '/drill/due-count',
     {
       schema: {
@@ -384,25 +434,36 @@ export const drillRoutes: FastifyPluginAsync = async (app) => {
         summary: 'Count the drill reps waiting',
         description:
           'Drill-eligible cards whose due date has passed. For the badge that spans both flows, ' +
-          'use `GET /review/due-count`.',
-        response: { 200: dueCountResponseSchema },
+          'use `GET /review/due-count`.\n\n' +
+          'Pass `?deckId=` to count only that deck, e.g. for a per-deck badge.',
+        querystring: deckScopedQuerystringSchema,
+        response: { 200: dueCountResponseSchema, 404: errorResponseSchema },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { userId } = request;
+      const { deckId } = request.query;
       const now = new Date();
+
+      const scope = await resolveDeckScope(userId, deckId);
+      if (!scope.ok) {
+        return reply.code(404).send({ error: `Deck ${deckId} not found` });
+      }
+      const deckFilter = scope.deckId !== undefined ? eq(problems.deckId, scope.deckId) : undefined;
 
       const [due] = await db
         .select({ value: count() })
         .from(srsCards)
         .innerJoin(problems, eq(problems.id, srsCards.problemId))
-        .where(and(eq(srsCards.userId, userId), lte(srsCards.dueAt, now), isDrillEligible()));
+        .where(
+          and(eq(srsCards.userId, userId), lte(srsCards.dueAt, now), isDrillEligible(), deckFilter),
+        );
 
       const [next] = await db
         .select({ dueAt: srsCards.dueAt })
         .from(srsCards)
         .innerJoin(problems, eq(problems.id, srsCards.problemId))
-        .where(and(eq(srsCards.userId, userId), isDrillEligible()))
+        .where(and(eq(srsCards.userId, userId), isDrillEligible(), deckFilter))
         .orderBy(asc(srsCards.dueAt))
         .limit(1);
 

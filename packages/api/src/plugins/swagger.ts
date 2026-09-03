@@ -92,6 +92,10 @@ const swagger: FastifyPluginAsync = async (app) => {
         { name: 'drill', description: 'The Blind Recognition Drill loop (F1.1–F1.4)' },
         { name: 'decks', description: 'Deck containers and adding problems to them' },
         {
+          name: 'settings',
+          description: "A user's own composite→FSRS-rating thresholds",
+        },
+        {
           name: 'submissions',
           description: 'Note + solution attempts, their AI evaluation, and committing a grade',
         },

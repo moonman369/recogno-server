@@ -11,6 +11,7 @@ import { deckRoutes } from './routes/decks.js';
 import { drillRoutes } from './routes/drill.js';
 import { healthRoutes } from './routes/health.js';
 import { reviewRoutes } from './routes/review.js';
+import { settingsRoutes } from './routes/settings.js';
 import { submissionRoutes } from './routes/submissions.js';
 
 export type AppInstance = FastifyInstance;
@@ -56,6 +57,7 @@ export async function buildApp(): Promise<AppInstance> {
   await app.register(deckRoutes);
   await app.register(submissionRoutes);
   await app.register(reviewRoutes);
+  await app.register(settingsRoutes);
 
   return app;
 }

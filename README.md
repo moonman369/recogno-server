@@ -69,6 +69,13 @@ the user has never seen, and finally offers the soonest-due card so the drill is
 never empty-handed. The response's `source` field says which branch fired. The
 ground-truth pattern and the tell are never in that payload.
 
+Both `/drill/next` and `/drill/due-count` accept an optional `?deckId=` to scope
+to one deck (system or the caller's own) instead of every deck the caller can
+see. It composes with the due → unseen → review-ahead fallback rather than
+replacing it, reuses `/decks/*`'s own visibility rule, and 404s for a deck that
+doesn't exist or isn't the caller's. `/drill/submit` needs no such option — the
+`problemId` in its body already names an unambiguous problem, deck included.
+
 `/drill/submit` grades three axes and combines them with the weights in
 `packages/api/src/drill/scoring.ts`:
 
@@ -128,14 +135,29 @@ a correct one do not reduce it. The response returns `guessedPatterns` and
 `actualPattern` fields.
 
 The composite maps onto an FSRS grade at 0.8 / 0.55 / 0.3 (Easy / Good / Hard,
-Again below that). Because correctness carries half the weight, a wrong guess
-tops out at Hard however fast and well argued it was, and a correct guess with no
-real reasoning lands at Hard too — recognising without being able to say why is
-not treated as mastery.
+Again below that) by default. Because correctness carries half the weight, a
+wrong guess tops out at Hard however fast and well argued it was, and a correct
+guess with no real reasoning lands at Hard too — recognising without being able
+to say why is not treated as mastery.
 
 If Gemini is unreachable the attempt still completes: the rationale scores
 neutrally and the response carries `rationale.judged: false` so the degradation
 is visible rather than silent.
+
+### Scoring settings
+
+| Route                    | What it does                                     |
+| ------------------------ | ------------------------------------------------- |
+| `GET /settings/scoring`    | This user's effective thresholds, default or not |
+| `PUT /settings/scoring`    | Set custom thresholds (`hard < good < easy`)     |
+| `DELETE /settings/scoring` | Clear the override, reverting to the defaults    |
+
+A user can tune the 0.8 / 0.55 / 0.3 cutoffs above to their own bands — stored
+per user in `scoring_settings`, read by both `POST /drill/submit` and `POST
+/submissions/{id}/commit` before they call `toFsrsRating`. This only changes
+which of FSRS's four grades a given score earns; FSRS's own stability/difficulty
+model still computes the actual next interval from that grade, untouched. No
+override means the defaults above, exactly as before this existed.
 
 ### Identity
 

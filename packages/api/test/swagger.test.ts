@@ -101,6 +101,7 @@ describe('swagger', () => {
       '/problems/{problemId}/submissions',
       '/review/due-count',
       '/review/queue',
+      '/settings/scoring',
       '/submissions/{submissionId}',
       '/submissions/{submissionId}/commit',
     ]);
