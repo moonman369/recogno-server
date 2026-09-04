@@ -80,5 +80,11 @@ jobs:
             cd ${{ secrets.VM_APP_DIR || '/opt/recogno-server' }}
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
             docker compose pull
+            # Migrate with the image just pulled, before any new container
+            # serves traffic - otherwise new code can reference tables that do
+            # not exist yet (Postgres 42P01). `set -e` above means a failed
+            # migration aborts the deploy and leaves the old stack running.
+            # --no-deps: migrations need the database, not redis.
+            docker compose run --rm --no-deps api node dist/migrate.js
             docker compose up -d
             docker image prune -f
