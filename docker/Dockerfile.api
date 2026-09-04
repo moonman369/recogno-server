@@ -38,6 +38,9 @@ ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=prod-deps /prod_modules ./node_modules
 COPY --from=build /app/packages/api/dist ./dist
+# The migration SQL + journal, read at runtime by `node dist/migrate.js`.
+# Resolved as ../drizzle from dist/, so this path is load-bearing.
+COPY --from=build /app/packages/shared/drizzle ./drizzle
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \

@@ -1,7 +1,9 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts'],
+  // `migrate.ts` is a second, one-shot entrypoint the deploy job runs against
+  // the image before starting the new containers. See docker/Dockerfile.api.
+  entry: ['src/index.ts', 'src/migrate.ts'],
   outDir: 'dist',
   format: ['esm'],
   platform: 'node',
